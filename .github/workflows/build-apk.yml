@@ -1,0 +1,2032 @@
+name: 构建手机助手工具箱 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建 Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 获取仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: 生成安卓项目源码
+        shell: bash
+        run: |
+          set -e
+          mkdir -p "$(dirname 'settings.gradle')"
+          cat > 'settings.gradle' <<'TRAE_FILE_settings_gradle'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          
+          rootProject.name = "PhoneHelperToolbox"
+          include ":app"
+          TRAE_FILE_settings_gradle
+
+          mkdir -p "$(dirname 'build.gradle')"
+          cat > 'build.gradle' <<'TRAE_FILE_build_gradle'
+          plugins {
+              id "com.android.application" version "8.5.2" apply false
+          }
+          TRAE_FILE_build_gradle
+
+          mkdir -p "$(dirname 'gradle.properties')"
+          cat > 'gradle.properties' <<'TRAE_FILE_gradle_properties'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          TRAE_FILE_gradle_properties
+
+          mkdir -p "$(dirname 'app/build.gradle')"
+          cat > 'app/build.gradle' <<'TRAE_FILE_app_build_gradle'
+          plugins {
+              id "com.android.application"
+          }
+          
+          android {
+              namespace "com.trae.phonehelper"
+              compileSdk 35
+          
+              defaultConfig {
+                  applicationId "com.trae.phonehelper"
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 30
+                  versionName "1.8.6"
+              }
+          
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          TRAE_FILE_app_build_gradle
+
+          mkdir -p "$(dirname 'app/src/main/AndroidManifest.xml')"
+          cat > 'app/src/main/AndroidManifest.xml' <<'TRAE_FILE_app_src_main_AndroidManifest_xml'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+          
+              <application
+                  android:allowBackup="true"
+                  android:theme="@style/AppTheme"
+                  android:label="手机助手工具箱"
+                  android:resizeableActivity="true"
+                  android:supportsRtl="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          TRAE_FILE_app_src_main_AndroidManifest_xml
+
+          mkdir -p "$(dirname 'app/src/main/res/values/styles.xml')"
+          cat > 'app/src/main/res/values/styles.xml' <<'TRAE_FILE_app_src_main_res_values_styles_xml'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">#07111F</item>
+                  <item name="android:navigationBarColor">#07111F</item>
+                  <item name="android:colorAccent">#38BDF8</item>
+              </style>
+          </resources>
+          TRAE_FILE_app_src_main_res_values_styles_xml
+
+          mkdir -p "$(dirname 'app/src/main/java/com/trae/phonehelper/MainActivity.java')"
+          cat > 'app/src/main/java/com/trae/phonehelper/MainActivity.java' <<'TRAE_FILE_app_src_main_java_com_trae_phonehelper_MainActivity_java'
+          package com.trae.phonehelper;
+          
+          import android.app.Activity;
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.Color;
+          import android.graphics.Rect;
+          import android.graphics.Typeface;
+          import android.graphics.drawable.GradientDrawable;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.SystemClock;
+          import android.text.InputType;
+          import android.os.Vibrator;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.WindowManager;
+          import android.view.inputmethod.InputMethodManager;
+          import android.widget.Button;
+          import android.widget.CheckBox;
+          import android.widget.EditText;
+          import android.widget.FrameLayout;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+          
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          
+          import java.io.BufferedReader;
+          import java.io.InputStream;
+          import java.io.InputStreamReader;
+          import java.io.OutputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.nio.charset.StandardCharsets;
+          import java.text.SimpleDateFormat;
+          import java.util.Date;
+          import java.util.Locale;
+          
+          public class MainActivity extends Activity {
+              private static final String PREF = "phone_helper_pref";
+              private static final int PICK_TEXT_FILE = 3001;
+              private static final int CREATE_BACKUP_FILE = 3002;
+              private static final int PICK_BACKUP_FILE = 3003;
+              private SharedPreferences pref;
+              private final Handler handler = new Handler();
+          
+              private LinearLayout homePage, splitPage, textPage, linkPage, timerPage, pomoPage, aiPage, aiSettingsPage, backupPage;
+              private LinearLayout splitResultList, savedTextList, linkList, aiMessageList, aiInputArea;
+              private FrameLayout rootFrame;
+              private ScrollView rootScroll;
+              private ScrollView aiMessageScroll;
+              private LinearLayout rootContainer;
+              private EditText longTextInput, splitSizeInput, titleInput, contentInput, linkTitleInput, linkUrlInput;
+              private EditText aiInput, apiUrlInput, apiKeyInput, modelInput, systemPromptInput;
+              private TextView statusText, timerDisplay, pomoDisplay, pomoStateText, pomoCountText;
+              private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
+              private CheckBox pomoLoopCheck;
+              private EditText timerMinuteInput, timerSecondInput, pomoFocusInput, pomoRestInput;
+          
+              private String timerMode = "stopwatch";
+              private boolean stopwatchRunning = false;
+              private long stopwatchElapsed = 0;
+              private long stopwatchStartedAt = 0;
+              private boolean countdownRunning = false;
+              private long countdownDuration = 5 * 60 * 1000L;
+              private long countdownElapsed = 0;
+              private long countdownStartedAt = 0;
+          
+              private boolean pomoRunning = false;
+              private boolean pomoFocus = true;
+              private long pomoDuration = 25 * 60 * 1000L;
+              private long pomoElapsed = 0;
+              private long pomoStartedAt = 0;
+          
+              private JSONArray aiMessages = new JSONArray();
+              private boolean aiSending = false;
+              private int rootBaseBottomPadding = 28;
+              private int aiBaseBottomPadding = 20;
+              private String currentPage = "home";
+              private int streamingAssistantIndex = -1;
+              private int editingTextIndex = -1;
+              private int editingLinkIndex = -1;
+              private long lastBackPressedAt = 0;
+              private final Runnable hideStatusRunnable = this::hideStatus;
+          
+              private final Runnable tick = new Runnable() {
+                  @Override
+                  public void run() {
+                      updateTimerDisplay();
+                      updatePomoDisplay();
+                      handler.postDelayed(this, 250);
+                  }
+              };
+          
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                  pref = getSharedPreferences(PREF, MODE_PRIVATE);
+                  ensureDefaults();
+                  refreshDefaultContentFor17();
+                  refreshDefaultContentFor171();
+                  restoreTimerState();
+                  restorePomoState();
+                  loadAiMessages();
+                  buildUi();
+                  renderSavedTexts();
+                  renderLinks();
+                  handler.post(tick);
+              }
+          
+              @Override
+              protected void onPause() {
+                  super.onPause();
+                  saveTimerState();
+                  savePomoState();
+              }
+          
+              @Override
+              protected void onDestroy() {
+                  super.onDestroy();
+                  saveTimerState();
+                  savePomoState();
+                  handler.removeCallbacks(tick);
+              }
+          
+              private void buildUi() {
+                  rootFrame = new FrameLayout(this);
+                  rootFrame.setBackgroundColor(Color.rgb(7, 17, 31));
+          
+                  rootScroll = new ScrollView(this);
+                  rootScroll.setFillViewport(false);
+                  rootScroll.setClipToPadding(false);
+                  rootScroll.setBackgroundColor(Color.rgb(7, 17, 31));
+                  rootContainer = new LinearLayout(this);
+                  rootContainer.setOrientation(LinearLayout.VERTICAL);
+                  rootContainer.setPadding(24, 120, 24, rootBaseBottomPadding);
+                  rootScroll.addView(rootContainer);
+          
+                  statusText = text("", 14, Color.rgb(52, 211, 153));
+                  statusText.setVisibility(View.GONE);
+                  rootContainer.addView(statusText);
+          
+                  homePage = page();
+                  splitPage = page();
+                  textPage = page();
+                  linkPage = page();
+                  timerPage = page();
+                  pomoPage = page();
+                  aiPage = page();
+                  aiSettingsPage = page();
+                  backupPage = page();
+                  rootContainer.addView(homePage);
+                  rootContainer.addView(splitPage);
+                  rootContainer.addView(textPage);
+                  rootContainer.addView(linkPage);
+                  rootContainer.addView(timerPage);
+                  rootContainer.addView(pomoPage);
+                  rootContainer.addView(aiSettingsPage);
+                  rootContainer.addView(backupPage);
+          
+                  buildHomePage();
+                  buildSplitPage();
+                  buildTextPage();
+                  buildLinkPage();
+                  buildTimerPage();
+                  buildPomoPage();
+                  buildAiPage();
+                  buildAiSettingsPage();
+                  buildBackupPage();
+          
+                  rootFrame.addView(rootScroll, new FrameLayout.LayoutParams(
+                          FrameLayout.LayoutParams.MATCH_PARENT,
+                          FrameLayout.LayoutParams.MATCH_PARENT
+                  ));
+                  rootFrame.addView(aiPage, new FrameLayout.LayoutParams(
+                          FrameLayout.LayoutParams.MATCH_PARENT,
+                          FrameLayout.LayoutParams.MATCH_PARENT
+                  ));
+          
+                  setContentView(rootFrame);
+                  installKeyboardGuard();
+                  showPage("home");
+              }
+          
+              private void buildHomePage() {
+                  TextView homeTitle = text("手机助手工具箱", 30, Color.WHITE);
+                  homeTitle.setTypeface(Typeface.DEFAULT_BOLD);
+                  homeTitle.setGravity(Gravity.CENTER_HORIZONTAL);
+                  homePage.addView(homeTitle);
+                  TextView homeTip = text("选择一个工具", 14, Color.rgb(148, 163, 184));
+                  homeTip.setGravity(Gravity.CENTER_HORIZONTAL);
+                  homePage.addView(homeTip);
+                  homePage.addView(sectionTitle("常用工具"));
+                  homePage.addView(homeButton("分段复制", "把长代码、长提示词、工作流自动拆成多段复制", "split"));
+                  homePage.addView(homeButton("常用文本", "保存 API 地址、模型名、提交信息等常用内容", "text"));
+                  homePage.addView(homeButton("快捷打开", "一键打开 GitHub、OpenRouter 等常用网页", "link"));
+                  homePage.addView(homeButton("数据备份", "导出或导入常用文本和快捷链接", "backup"));
+                  homePage.addView(sectionTitle("学习工具"));
+                  homePage.addView(homeButton("计时器", "正计时、倒计时和快速倒计时", "timer"));
+                  homePage.addView(homeButton("番茄钟", "专注 25 分钟，休息 5 分钟，记录今日完成数", "pomo"));
+                  homePage.addView(sectionTitle("AI工具"));
+                  homePage.addView(homeButton("AI聊天", "接入 OpenAI 兼容接口，支持 openrouter/free", "ai"));
+                  homePage.addView(homeButton("AI设置", "填写 API 地址、API Key、模型名和智能体设定", "aiSettings"));
+              }
+          
+              private View homeButton(String title, String desc, String pageName) {
+                  LinearLayout card = card();
+                  TextView t = text(title, 18, Color.WHITE);
+                  t.setTypeface(Typeface.DEFAULT_BOLD);
+                  card.addView(t);
+                  card.addView(text(desc, 13, Color.rgb(148, 163, 184)));
+                  TextView hint = text("点按进入", 13, Color.rgb(52, 211, 153));
+                  hint.setGravity(Gravity.RIGHT);
+                  card.addView(hint);
+                  card.setClickable(true);
+                  card.setOnClickListener(v -> showPage(pageName));
+                  return card;
+              }
+          
+              private void buildSplitPage() {
+                  splitPage.addView(sectionTitle("长文本分段复制"));
+                  splitPage.addView(infoCard("把很长的代码、工作流、提示词粘到这里，App 会自动分段，每段都有复制按钮。"));
+                  longTextInput = inputBox("粘贴长文本");
+                  longTextInput.setMinLines(8);
+                  longTextInput.setGravity(Gravity.TOP);
+                  splitPage.addView(longTextInput);
+                  splitSizeInput = inputBox("每段最大字数，默认 3000");
+                  splitSizeInput.setText("3000");
+                  splitSizeInput.setSingleLine(true);
+                  splitPage.addView(labelWrap("分段长度", splitSizeInput));
+                  LinearLayout actions = row();
+                  Button importFile = button("从文件导入");
+                  Button generate = button("生成分段");
+                  Button clear = button("清空");
+                  actions.addView(importFile, weight());
+                  actions.addView(generate, weight());
+                  actions.addView(clear, weight());
+                  splitPage.addView(actions);
+                  splitResultList = new LinearLayout(this);
+                  splitResultList.setOrientation(LinearLayout.VERTICAL);
+                  splitPage.addView(splitResultList);
+                  importFile.setOnClickListener(v -> chooseTextFile());
+                  generate.setOnClickListener(v -> generateChunks());
+                  clear.setOnClickListener(v -> {
+                      longTextInput.setText("");
+                      splitResultList.removeAllViews();
+                      showStatus("已清空");
+                  });
+              }
+          
+              private void buildTextPage() {
+                  textPage.addView(sectionTitle("常用文本"));
+                  textPage.addView(infoCard("保存常用路径、API 地址、模型名、提交信息。以后点一下就能复制。"));
+                  titleInput = inputBox("标题，例如 OpenRouter API 地址");
+                  titleInput.setSingleLine(true);
+                  contentInput = inputBox("内容");
+                  contentInput.setMinLines(3);
+                  contentInput.setGravity(Gravity.TOP);
+                  textPage.addView(labelWrap("标题", titleInput));
+                  textPage.addView(labelWrap("内容", contentInput));
+                  textSaveButton = button("添加常用文本");
+                  textPage.addView(textSaveButton);
+                  textCancelEditButton = button("取消编辑");
+                  textCancelEditButton.setVisibility(View.GONE);
+                  textPage.addView(textCancelEditButton);
+                  savedTextList = new LinearLayout(this);
+                  savedTextList.setOrientation(LinearLayout.VERTICAL);
+                  textPage.addView(savedTextList);
+                  textSaveButton.setOnClickListener(v -> addSavedText());
+                  textCancelEditButton.setOnClickListener(v -> cancelTextEdit());
+              }
+          
+              private void buildLinkPage() {
+                  linkPage.addView(sectionTitle("快捷打开"));
+                  linkPage.addView(infoCard("保存常用网站，一键打开 GitHub、OpenRouter、Actions 等页面。"));
+                  linkTitleInput = inputBox("标题，例如 GitHub");
+                  linkTitleInput.setSingleLine(true);
+                  linkUrlInput = inputBox("网址，例如 https://github.com");
+                  linkUrlInput.setSingleLine(true);
+                  linkPage.addView(labelWrap("标题", linkTitleInput));
+                  linkPage.addView(labelWrap("网址", linkUrlInput));
+                  linkSaveButton = button("添加快捷链接");
+                  linkPage.addView(linkSaveButton);
+                  linkCancelEditButton = button("取消编辑");
+                  linkCancelEditButton.setVisibility(View.GONE);
+                  linkPage.addView(linkCancelEditButton);
+                  linkList = new LinearLayout(this);
+                  linkList.setOrientation(LinearLayout.VERTICAL);
+                  linkPage.addView(linkList);
+                  linkSaveButton.setOnClickListener(v -> addLink());
+                  linkCancelEditButton.setOnClickListener(v -> cancelLinkEdit());
+              }
+          
+              private void buildTimerPage() {
+                  timerPage.addView(sectionTitle("计时器"));
+                  timerPage.addView(infoCard("包含正计时、倒计时和快速倒计时。适合临时计时，不替代闹钟。"));
+                  LinearLayout modeRow = row();
+                  stopwatchTab = button("正计时");
+                  countdownTab = button("倒计时");
+                  modeRow.addView(stopwatchTab, weight());
+                  modeRow.addView(countdownTab, weight());
+                  timerPage.addView(modeRow);
+                  timerDisplay = text("00:00.0", 56, Color.WHITE);
+                  timerDisplay.setGravity(Gravity.CENTER);
+                  timerDisplay.setPadding(0, 28, 0, 20);
+                  timerPage.addView(timerDisplay);
+                  LinearLayout edit = row();
+                  timerMinuteInput = inputBox("分钟");
+                  timerMinuteInput.setText("5");
+                  timerMinuteInput.setSingleLine(true);
+                  timerSecondInput = inputBox("秒");
+                  timerSecondInput.setText("0");
+                  timerSecondInput.setSingleLine(true);
+                  edit.addView(labelWrap("分钟", timerMinuteInput), weight());
+                  edit.addView(labelWrap("秒", timerSecondInput), weight());
+                  timerPage.addView(edit);
+                  Button set = button("设定倒计时");
+                  timerPage.addView(set);
+                  LinearLayout controls = row();
+                  timerStartPause = button("开始");
+                  Button reset = button("重置");
+                  controls.addView(timerStartPause, weight());
+                  controls.addView(reset, weight());
+                  timerPage.addView(controls);
+                  LinearLayout quick1 = row();
+                  quick1.addView(quickTimerButton("1 分钟", 1), weight());
+                  quick1.addView(quickTimerButton("3 分钟", 3), weight());
+                  timerPage.addView(quick1);
+                  LinearLayout quick2 = row();
+                  quick2.addView(quickTimerButton("5 分钟", 5), weight());
+                  quick2.addView(quickTimerButton("10 分钟", 10), weight());
+                  timerPage.addView(quick2);
+                  stopwatchTab.setOnClickListener(v -> {
+                      timerMode = "stopwatch";
+                      updateTimerDisplay();
+                      saveTimerState();
+                  });
+                  countdownTab.setOnClickListener(v -> {
+                      timerMode = "countdown";
+                      updateTimerDisplay();
+                      saveTimerState();
+                  });
+                  set.setOnClickListener(v -> setCountdownFromInput());
+                  timerStartPause.setOnClickListener(v -> toggleTimer());
+                  reset.setOnClickListener(v -> resetTimer());
+              }
+          
+              private void buildPomoPage() {
+                  pomoPage.addView(sectionTitle("番茄钟"));
+                  pomoPage.addView(infoCard("默认专注 25 分钟、休息 5 分钟。适合学习节奏管理。"));
+                  pomoStateText = text("准备开始专注", 18, Color.rgb(125, 211, 252));
+                  pomoStateText.setGravity(Gravity.CENTER);
+                  pomoPage.addView(pomoStateText);
+                  pomoDisplay = text("25:00", 60, Color.WHITE);
+                  pomoDisplay.setGravity(Gravity.CENTER);
+                  pomoPage.addView(pomoDisplay);
+                  pomoCountText = text("今日完成 0 个番茄", 16, Color.rgb(52, 211, 153));
+                  pomoCountText.setGravity(Gravity.CENTER);
+                  pomoPage.addView(pomoCountText);
+                  pomoLoopCheck = new CheckBox(this);
+                  pomoLoopCheck.setText("休息结束后自动进入下一轮专注");
+                  pomoLoopCheck.setTextColor(Color.WHITE);
+                  pomoLoopCheck.setTextSize(16);
+                  pomoLoopCheck.setChecked(pref.getBoolean("pomoLoop", true));
+                  pomoPage.addView(pomoLoopCheck);
+                  LinearLayout edit = row();
+                  pomoFocusInput = inputBox("专注分钟");
+                  pomoFocusInput.setText("25");
+                  pomoFocusInput.setSingleLine(true);
+                  pomoRestInput = inputBox("休息分钟");
+                  pomoRestInput.setText("5");
+                  pomoRestInput.setSingleLine(true);
+                  edit.addView(labelWrap("专注", pomoFocusInput), weight());
+                  edit.addView(labelWrap("休息", pomoRestInput), weight());
+                  pomoPage.addView(edit);
+                  Button apply = button("应用番茄钟设置");
+                  pomoPage.addView(apply);
+                  LinearLayout controls = row();
+                  Button startPause = button("开始/暂停");
+                  Button reset = button("重置");
+                  Button done = button("完成一个");
+                  controls.addView(startPause, weight());
+                  controls.addView(reset, weight());
+                  controls.addView(done, weight());
+                  pomoPage.addView(controls);
+                  apply.setOnClickListener(v -> applyPomoSettings());
+                  startPause.setOnClickListener(v -> togglePomo());
+                  reset.setOnClickListener(v -> resetPomo());
+                  done.setOnClickListener(v -> finishOnePomo());
+                  pomoLoopCheck.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                      pref.edit().putBoolean("pomoLoop", isChecked).apply();
+                      showStatus(isChecked ? "休息结束后会自动进入下一轮专注" : "休息结束后会暂停，等待手动开始");
+                  });
+                  updatePomoDisplay();
+              }
+          
+              private void buildAiPage() {
+                  aiPage.setPadding(24, 120, 24, aiBaseBottomPadding);
+                  aiPage.setBackgroundColor(Color.rgb(7, 17, 31));
+                  aiPage.addView(sectionTitle("AI聊天"));
+                  aiPage.addView(infoCard("这里使用 OpenAI 兼容接口。首次使用请先进入 AI设置，填写 API Key。"));
+          
+                  aiMessageScroll = new ScrollView(this);
+                  aiMessageScroll.setFillViewport(false);
+                  aiMessageScroll.setClipToPadding(false);
+                  aiMessageList = new LinearLayout(this);
+                  aiMessageList.setOrientation(LinearLayout.VERTICAL);
+                  aiMessageScroll.addView(aiMessageList);
+                  aiPage.addView(aiMessageScroll, new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          0,
+                          1
+                  ));
+          
+                  aiInputArea = new LinearLayout(this);
+                  aiInputArea.setOrientation(LinearLayout.VERTICAL);
+                  aiInputArea.setPadding(0, 10, 0, 0);
+                  GradientDrawable inputBg = new GradientDrawable();
+                  inputBg.setColor(Color.rgb(7, 17, 31));
+                  inputBg.setStroke(1, Color.rgb(30, 41, 59));
+                  inputBg.setCornerRadius(20);
+                  aiInputArea.setBackground(inputBg);
+          
+                  aiInput = inputBox("输入你想问 AI 的内容");
+                  aiInput.setMinLines(2);
+                  aiInput.setMaxLines(5);
+                  aiInputArea.addView(aiInput);
+          
+                  LinearLayout actions = row();
+                  aiSendButton = button("发送");
+                  Button clear = button("清空");
+                  actions.addView(aiSendButton, weight());
+                  actions.addView(clear, weight());
+                  aiInputArea.addView(actions);
+                  aiPage.addView(aiInputArea);
+          
+                  aiSendButton.setOnClickListener(v -> sendAiMessage());
+                  clear.setOnClickListener(v -> {
+                      aiMessages = new JSONArray();
+                      saveAiMessages();
+                      renderAiMessages();
+                      showStatus("AI 对话已清空");
+                  });
+                  renderAiMessages();
+              }
+          
+              private void buildAiSettingsPage() {
+                  aiSettingsPage.addView(sectionTitle("AI设置"));
+                  aiSettingsPage.addView(infoCard("API Key 只保存在本机，不会写进 GitHub。推荐模型名保持 openrouter/free。"));
+          
+                  apiUrlInput = inputBox("API 地址");
+                  apiUrlInput.setText(pref.getString("aiApiUrl", "https://openrouter.ai/api/v1/chat/completions"));
+                  aiSettingsPage.addView(labelWrap("API 地址", apiUrlInput));
+          
+                  apiKeyInput = inputBox("API Key");
+                  apiKeyInput.setSingleLine(true);
+                  apiKeyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+                  apiKeyInput.setText(pref.getString("aiApiKey", ""));
+                  aiSettingsPage.addView(labelWrap("API Key", apiKeyInput));
+          
+                  modelInput = inputBox("模型名");
+                  modelInput.setSingleLine(true);
+                  modelInput.setText(pref.getString("aiModel", "openrouter/free"));
+                  aiSettingsPage.addView(labelWrap("模型名", modelInput));
+          
+                  systemPromptInput = inputBox("智能体设定");
+                  systemPromptInput.setMinLines(4);
+                  systemPromptInput.setText(pref.getString("aiSystemPrompt", "你是一个耐心、有逻辑、说中文的智能助手。回答要清晰、实用、不过度啰嗦。"));
+                  aiSettingsPage.addView(labelWrap("智能体设定", systemPromptInput));
+          
+                  LinearLayout actions = row();
+                  Button save = button("保存设置");
+                  Button test = button("测试连接");
+                  Button defaults = button("默认配置");
+                  actions.addView(save, weight());
+                  actions.addView(test, weight());
+                  actions.addView(defaults, weight());
+                  aiSettingsPage.addView(actions);
+          
+                  save.setOnClickListener(v -> {
+                      saveAiSettings();
+                      showStatus("AI 设置已保存");
+                      showPage("ai");
+                  });
+                  test.setOnClickListener(v -> {
+                      saveAiSettings();
+                      testAiConnection();
+                  });
+                  defaults.setOnClickListener(v -> fillDefaultAiSettings());
+              }
+          
+              private void buildBackupPage() {
+                  backupPage.addView(sectionTitle("数据备份"));
+                  backupPage.addView(infoCard("导出和导入常用文本、快捷链接。不会导出 AI Key，避免密钥泄露。"));
+                  LinearLayout actions = row();
+                  Button export = button("导出备份");
+                  Button importBackup = button("导入备份");
+                  actions.addView(export, weight());
+                  actions.addView(importBackup, weight());
+                  backupPage.addView(actions);
+                  backupPage.addView(infoCard("导出的文件是 JSON 文本。换手机、重装 App 或误删内容时，可以用它恢复常用文本和快捷链接。"));
+                  export.setOnClickListener(v -> createBackupFile());
+                  importBackup.setOnClickListener(v -> chooseBackupFile());
+              }
+          
+              private void chooseTextFile() {
+                  Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                  intent.addCategory(Intent.CATEGORY_OPENABLE);
+                  intent.setType("*/*");
+                  String[] mimeTypes = new String[]{
+                          "text/*",
+                          "application/json",
+                          "application/xml",
+                          "application/x-yaml",
+                          "application/octet-stream"
+                  };
+                  intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+                  startActivityForResult(intent, PICK_TEXT_FILE);
+              }
+          
+              private void createBackupFile() {
+                  Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                  intent.addCategory(Intent.CATEGORY_OPENABLE);
+                  intent.setType("application/json");
+                  intent.putExtra(Intent.EXTRA_TITLE, "phone-helper-backup.json");
+                  startActivityForResult(intent, CREATE_BACKUP_FILE);
+              }
+          
+              private void chooseBackupFile() {
+                  Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                  intent.addCategory(Intent.CATEGORY_OPENABLE);
+                  intent.setType("*/*");
+                  String[] mimeTypes = new String[]{"application/json", "text/*", "application/octet-stream"};
+                  intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+                  startActivityForResult(intent, PICK_BACKUP_FILE);
+              }
+          
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == PICK_TEXT_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+                      importTextFile(data.getData());
+                  } else if (requestCode == CREATE_BACKUP_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+                      exportBackup(data.getData());
+                  } else if (requestCode == PICK_BACKUP_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+                      importBackup(data.getData());
+                  }
+              }
+          
+              private void importTextFile(Uri uri) {
+                  try {
+                      getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                  } catch (Exception ignored) {
+                  }
+                  try (InputStream inputStream = getContentResolver().openInputStream(uri)) {
+                      if (inputStream == null) {
+                          toast("无法读取这个文件");
+                          return;
+                      }
+                      String content = readAll(inputStream);
+                      longTextInput.setText(content);
+                      splitResultList.removeAllViews();
+                      showStatus("已导入文件，共 " + content.length() + " 字");
+                      showPage("split");
+                  } catch (Exception e) {
+                      showStatus("导入失败：" + shortError(e.getMessage()));
+                  }
+              }
+          
+              private void exportBackup(Uri uri) {
+                  try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
+                      if (outputStream == null) {
+                          toast("无法创建备份文件");
+                          return;
+                      }
+                      JSONObject backup = new JSONObject();
+                      backup.put("version", 1);
+                      backup.put("texts", loadArray("texts"));
+                      backup.put("links", loadArray("links"));
+                      outputStream.write(backup.toString(2).getBytes(StandardCharsets.UTF_8));
+                      showStatus("备份已导出");
+                  } catch (Exception e) {
+                      showStatus("导出失败：" + shortError(e.getMessage()));
+                  }
+              }
+          
+              private void importBackup(Uri uri) {
+                  try (InputStream inputStream = getContentResolver().openInputStream(uri)) {
+                      if (inputStream == null) {
+                          toast("无法读取备份文件");
+                          return;
+                      }
+                      JSONObject backup = new JSONObject(readAll(inputStream));
+                      JSONArray texts = backup.optJSONArray("texts");
+                      JSONArray links = backup.optJSONArray("links");
+                      if (texts == null && links == null) {
+                          toast("这不是有效的备份文件");
+                          return;
+                      }
+                      if (texts != null) saveArray("texts", texts);
+                      if (links != null) saveArray("links", links);
+                      renderSavedTexts();
+                      renderLinks();
+                      showStatus("备份已导入");
+                  } catch (Exception e) {
+                      showStatus("导入失败：" + shortError(e.getMessage()));
+                  }
+              }
+          
+              private void generateChunks() {
+                  String source = longTextInput.getText().toString();
+                  if (source.trim().isEmpty()) {
+                      toast("请先粘贴长文本");
+                      return;
+                  }
+                  int size = parseInt(splitSizeInput.getText().toString(), 3000);
+                  size = Math.max(500, Math.min(10000, size));
+                  splitSizeInput.setText(String.valueOf(size));
+                  splitResultList.removeAllViews();
+                  int count = 0;
+                  for (int start = 0; start < source.length(); start += size) {
+                      int end = Math.min(source.length(), start + size);
+                      String chunk = source.substring(start, end);
+                      count++;
+                      splitResultList.addView(chunkCard(count, chunk));
+                  }
+                  hideKeyboard();
+                  showStatus("已生成 " + count + " 段");
+              }
+          
+              private View chunkCard(int index, String chunk) {
+                  LinearLayout card = card();
+                  TextView title = text(String.format("第 %02d 段 · %d 字", index, chunk.length()), 18, Color.WHITE);
+                  title.setTypeface(Typeface.DEFAULT_BOLD);
+                  card.addView(title);
+                  card.addView(text(preview(chunk), 14, Color.LTGRAY));
+                  Button copy = button("复制第 " + String.format("%02d", index) + " 段");
+                  copy.setOnClickListener(v -> copyText("第 " + index + " 段", chunk));
+                  card.addView(copy);
+                  return card;
+              }
+          
+              private void addSavedText() {
+                  String title = titleInput.getText().toString().trim();
+                  String content = contentInput.getText().toString();
+                  if (title.isEmpty() || content.trim().isEmpty()) {
+                      toast("标题和内容都要填写");
+                      return;
+                  }
+                  JSONArray array = loadArray("texts");
+                  try {
+                      JSONObject obj = new JSONObject();
+                      obj.put("title", title);
+                      obj.put("content", content);
+                      if (editingTextIndex >= 0 && editingTextIndex < array.length()) {
+                          array.put(editingTextIndex, obj);
+                      } else {
+                          array.put(obj);
+                      }
+                      saveArray("texts", array);
+                  } catch (Exception ignored) {}
+                  boolean edited = editingTextIndex >= 0;
+                  titleInput.setText("");
+                  contentInput.setText("");
+                  cancelTextEditStateOnly();
+                  renderSavedTexts();
+                  hideKeyboard();
+                  showStatus(edited ? "已保存常用文本修改" : "已添加常用文本");
+              }
+          
+              private void renderSavedTexts() {
+                  if (savedTextList == null) return;
+                  savedTextList.removeAllViews();
+                  JSONArray array = loadArray("texts");
+                  for (int i = 0; i < array.length(); i++) {
+                      try {
+                          JSONObject obj = array.getJSONObject(i);
+                          savedTextList.addView(savedTextCard(i, obj.optString("title"), obj.optString("content")));
+                      } catch (Exception ignored) {}
+                  }
+              }
+          
+              private View savedTextCard(int index, String title, String content) {
+                  LinearLayout card = card();
+                  TextView titleView = text(title, 18, Color.WHITE);
+                  titleView.setTypeface(Typeface.DEFAULT_BOLD);
+                  card.addView(titleView);
+                  card.addView(text(preview(content), 14, Color.LTGRAY));
+                  LinearLayout actions = row();
+                  Button copy = button("复制");
+                  Button edit = button("编辑");
+                  Button delete = button("删除");
+                  LinearLayout sortActions = row();
+                  Button up = button("上移");
+                  Button down = button("下移");
+                  copy.setOnClickListener(v -> copyText(title, content));
+                  edit.setOnClickListener(v -> startTextEdit(index, title, content));
+                  delete.setOnClickListener(v -> {
+                      if (editingTextIndex == index) cancelTextEditStateOnly();
+                      removeItem("texts", index);
+                      renderSavedTexts();
+                      showStatus("已删除常用文本");
+                  });
+                  up.setEnabled(index > 0);
+                  down.setEnabled(index < loadArray("texts").length() - 1);
+                  up.setAlpha(index > 0 ? 1f : 0.45f);
+                  down.setAlpha(index < loadArray("texts").length() - 1 ? 1f : 0.45f);
+                  up.setOnClickListener(v -> moveItem("texts", index, index - 1, "text"));
+                  down.setOnClickListener(v -> moveItem("texts", index, index + 1, "text"));
+                  actions.addView(copy, weight());
+                  actions.addView(edit, weight());
+                  actions.addView(delete, weight());
+                  card.addView(actions);
+                  sortActions.addView(up, weight());
+                  sortActions.addView(down, weight());
+                  card.addView(sortActions);
+                  return card;
+              }
+          
+              private void startTextEdit(int index, String title, String content) {
+                  editingTextIndex = index;
+                  titleInput.setText(title);
+                  contentInput.setText(content);
+                  textSaveButton.setText("保存修改");
+                  textCancelEditButton.setVisibility(View.VISIBLE);
+                  showStatus("正在编辑常用文本");
+                  showPage("text");
+              }
+          
+              private void cancelTextEdit() {
+                  titleInput.setText("");
+                  contentInput.setText("");
+                  cancelTextEditStateOnly();
+                  showStatus("已取消编辑");
+              }
+          
+              private void cancelTextEditStateOnly() {
+                  editingTextIndex = -1;
+                  if (textSaveButton != null) textSaveButton.setText("添加常用文本");
+                  if (textCancelEditButton != null) textCancelEditButton.setVisibility(View.GONE);
+              }
+          
+              private void addLink() {
+                  String title = linkTitleInput.getText().toString().trim();
+                  String url = linkUrlInput.getText().toString().trim();
+                  if (title.isEmpty() || url.isEmpty()) {
+                      toast("标题和网址都要填写");
+                      return;
+                  }
+                  if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
+                  JSONArray array = loadArray("links");
+                  try {
+                      JSONObject obj = new JSONObject();
+                      obj.put("title", title);
+                      obj.put("url", url);
+                      if (editingLinkIndex >= 0 && editingLinkIndex < array.length()) {
+                          array.put(editingLinkIndex, obj);
+                      } else {
+                          array.put(obj);
+                      }
+                      saveArray("links", array);
+                  } catch (Exception ignored) {}
+                  boolean edited = editingLinkIndex >= 0;
+                  linkTitleInput.setText("");
+                  linkUrlInput.setText("");
+                  cancelLinkEditStateOnly();
+                  renderLinks();
+                  hideKeyboard();
+                  showStatus(edited ? "已保存快捷链接修改" : "已添加快捷链接");
+              }
+          
+              private void renderLinks() {
+                  if (linkList == null) return;
+                  linkList.removeAllViews();
+                  JSONArray array = loadArray("links");
+                  for (int i = 0; i < array.length(); i++) {
+                      try {
+                          JSONObject obj = array.getJSONObject(i);
+                          linkList.addView(linkCard(i, obj.optString("title"), obj.optString("url")));
+                      } catch (Exception ignored) {}
+                  }
+              }
+          
+              private View linkCard(int index, String title, String url) {
+                  LinearLayout card = card();
+                  TextView titleView = text(title, 18, Color.WHITE);
+                  titleView.setTypeface(Typeface.DEFAULT_BOLD);
+                  card.addView(titleView);
+                  card.addView(text(url, 13, Color.LTGRAY));
+                  LinearLayout actions = row();
+                  Button open = button("打开");
+                  Button copy = button("复制网址");
+                  Button edit = button("编辑");
+                  Button delete = button("删除");
+                  LinearLayout sortActions = row();
+                  Button up = button("上移");
+                  Button down = button("下移");
+                  open.setOnClickListener(v -> openUrl(url));
+                  copy.setOnClickListener(v -> copyText(title + "网址", url));
+                  edit.setOnClickListener(v -> startLinkEdit(index, title, url));
+                  delete.setOnClickListener(v -> {
+                      if (editingLinkIndex == index) cancelLinkEditStateOnly();
+                      removeItem("links", index);
+                      renderLinks();
+                      showStatus("已删除快捷链接");
+                  });
+                  up.setEnabled(index > 0);
+                  down.setEnabled(index < loadArray("links").length() - 1);
+                  up.setAlpha(index > 0 ? 1f : 0.45f);
+                  down.setAlpha(index < loadArray("links").length() - 1 ? 1f : 0.45f);
+                  up.setOnClickListener(v -> moveItem("links", index, index - 1, "link"));
+                  down.setOnClickListener(v -> moveItem("links", index, index + 1, "link"));
+                  actions.addView(open, weight());
+                  actions.addView(copy, weight());
+                  actions.addView(edit, weight());
+                  actions.addView(delete, weight());
+                  card.addView(actions);
+                  sortActions.addView(up, weight());
+                  sortActions.addView(down, weight());
+                  card.addView(sortActions);
+                  return card;
+              }
+          
+              private void startLinkEdit(int index, String title, String url) {
+                  editingLinkIndex = index;
+                  linkTitleInput.setText(title);
+                  linkUrlInput.setText(url);
+                  linkSaveButton.setText("保存修改");
+                  linkCancelEditButton.setVisibility(View.VISIBLE);
+                  showStatus("正在编辑快捷链接");
+                  showPage("link");
+              }
+          
+              private void cancelLinkEdit() {
+                  linkTitleInput.setText("");
+                  linkUrlInput.setText("");
+                  cancelLinkEditStateOnly();
+                  showStatus("已取消编辑");
+              }
+          
+              private void cancelLinkEditStateOnly() {
+                  editingLinkIndex = -1;
+                  if (linkSaveButton != null) linkSaveButton.setText("添加快捷链接");
+                  if (linkCancelEditButton != null) linkCancelEditButton.setVisibility(View.GONE);
+              }
+          
+              private Button quickTimerButton(String label, int minutes) {
+                  Button b = button(label);
+                  b.setOnClickListener(v -> {
+                      timerMode = "countdown";
+                      countdownDuration = minutes * 60 * 1000L;
+                      countdownElapsed = 0;
+                      countdownRunning = false;
+                      updateTimerDisplay();
+                      saveTimerState();
+                  });
+                  return b;
+              }
+          
+              private void setCountdownFromInput() {
+                  int minutes = parseInt(timerMinuteInput.getText().toString(), 5);
+                  int seconds = Math.max(0, Math.min(59, parseInt(timerSecondInput.getText().toString(), 0)));
+                  countdownDuration = Math.max(1000L, (minutes * 60L + seconds) * 1000L);
+                  countdownElapsed = 0;
+                  countdownRunning = false;
+                  timerMode = "countdown";
+                  updateTimerDisplay();
+                  saveTimerState();
+              }
+          
+              private void toggleTimer() {
+                  if ("stopwatch".equals(timerMode)) {
+                      if (stopwatchRunning) {
+                          stopwatchElapsed = getStopwatchElapsed();
+                          stopwatchRunning = false;
+                      } else {
+                          stopwatchRunning = true;
+                          stopwatchStartedAt = SystemClock.elapsedRealtime();
+                      }
+                  } else {
+                      if (countdownRunning) {
+                          countdownElapsed = getCountdownElapsed();
+                          countdownRunning = false;
+                      } else {
+                          if (getCountdownRemaining() <= 0) countdownElapsed = 0;
+                          countdownRunning = true;
+                          countdownStartedAt = SystemClock.elapsedRealtime();
+                      }
+                  }
+                  updateTimerDisplay();
+                  saveTimerState();
+              }
+          
+              private void resetTimer() {
+                  if ("stopwatch".equals(timerMode)) {
+                      stopwatchRunning = false;
+                      stopwatchElapsed = 0;
+                  } else {
+                      countdownRunning = false;
+                      countdownElapsed = 0;
+                  }
+                  updateTimerDisplay();
+                  saveTimerState();
+              }
+          
+              private long getStopwatchElapsed() {
+                  return stopwatchRunning ? stopwatchElapsed + SystemClock.elapsedRealtime() - stopwatchStartedAt : stopwatchElapsed;
+              }
+          
+              private long getCountdownElapsed() {
+                  return countdownRunning ? Math.min(countdownDuration, countdownElapsed + SystemClock.elapsedRealtime() - countdownStartedAt) : countdownElapsed;
+              }
+          
+              private long getCountdownRemaining() {
+                  return Math.max(0, countdownDuration - getCountdownElapsed());
+              }
+          
+              private void updateTimerDisplay() {
+                  if (timerDisplay == null) return;
+                  if (countdownRunning && getCountdownRemaining() <= 0) {
+                      countdownRunning = false;
+                      countdownElapsed = countdownDuration;
+                      buzz();
+                      showStatus("倒计时结束");
+                  }
+                  boolean stopwatch = "stopwatch".equals(timerMode);
+                  stopwatchTab.setAlpha(stopwatch ? 1f : 0.55f);
+                  countdownTab.setAlpha(stopwatch ? 0.55f : 1f);
+                  if (stopwatch) {
+                      timerDisplay.setText(formatTenths(getStopwatchElapsed()));
+                      timerStartPause.setText(stopwatchRunning ? "暂停" : getStopwatchElapsed() > 0 ? "继续" : "开始");
+                  } else {
+                      timerDisplay.setText(formatTenths(getCountdownRemaining()));
+                      timerStartPause.setText(countdownRunning ? "暂停" : getCountdownElapsed() > 0 && getCountdownRemaining() > 0 ? "继续" : "开始");
+                  }
+              }
+          
+              private void applyPomoSettings() {
+                  int focusMin = Math.max(1, Math.min(180, parseInt(pomoFocusInput.getText().toString(), 25)));
+                  int restMin = Math.max(1, Math.min(60, parseInt(pomoRestInput.getText().toString(), 5)));
+                  pref.edit()
+                          .putInt("pomoFocusMin", focusMin)
+                          .putInt("pomoRestMin", restMin)
+                          .putBoolean("pomoLoop", pomoLoopCheck == null || pomoLoopCheck.isChecked())
+                          .apply();
+                  pomoFocus = true;
+                  pomoRunning = false;
+                  pomoDuration = focusMin * 60 * 1000L;
+                  pomoElapsed = 0;
+                  updatePomoDisplay();
+                  showStatus("番茄钟设置已应用");
+              }
+          
+              private void togglePomo() {
+                  if (pomoRunning) {
+                      pomoElapsed = getPomoElapsed();
+                      pomoRunning = false;
+                  } else {
+                      if (getPomoRemaining() <= 0) pomoElapsed = 0;
+                      pomoRunning = true;
+                      pomoStartedAt = SystemClock.elapsedRealtime();
+                  }
+                  updatePomoDisplay();
+                  savePomoState();
+              }
+          
+              private void resetPomo() {
+                  pomoRunning = false;
+                  pomoFocus = true;
+                  pomoDuration = pref.getInt("pomoFocusMin", 25) * 60 * 1000L;
+                  pomoElapsed = 0;
+                  updatePomoDisplay();
+                  savePomoState();
+              }
+          
+              private void finishOnePomo() {
+                  increasePomoCount();
+                  pomoFocus = false;
+                  pomoRunning = false;
+                  pomoDuration = pref.getInt("pomoRestMin", 5) * 60 * 1000L;
+                  pomoElapsed = 0;
+                  updatePomoDisplay();
+                  savePomoState();
+                  showStatus("已记录完成 1 个番茄");
+              }
+          
+              private long getPomoElapsed() {
+                  return pomoRunning ? Math.min(pomoDuration, pomoElapsed + SystemClock.elapsedRealtime() - pomoStartedAt) : pomoElapsed;
+              }
+          
+              private long getPomoRemaining() {
+                  return Math.max(0, pomoDuration - getPomoElapsed());
+              }
+          
+              private void updatePomoDisplay() {
+                  if (pomoDisplay == null) return;
+                  if (pomoRunning && getPomoRemaining() <= 0) {
+                      pomoElapsed = pomoDuration;
+                      buzz();
+                      if (pomoFocus) {
+                          increasePomoCount();
+                          pomoFocus = false;
+                          pomoDuration = pref.getInt("pomoRestMin", 5) * 60 * 1000L;
+                          pomoElapsed = 0;
+                          pomoRunning = true;
+                          pomoStartedAt = SystemClock.elapsedRealtime();
+                          showStatus("专注完成，开始休息吧");
+                      } else {
+                          boolean autoLoop = pref.getBoolean("pomoLoop", true);
+                          pomoFocus = true;
+                          pomoDuration = pref.getInt("pomoFocusMin", 25) * 60 * 1000L;
+                          pomoElapsed = 0;
+                          pomoRunning = autoLoop;
+                          if (autoLoop) pomoStartedAt = SystemClock.elapsedRealtime();
+                          showStatus(autoLoop ? "休息结束，已开始下一轮专注" : "休息结束，等待手动开始下一轮");
+                      }
+                      savePomoState();
+                  }
+                  pomoDisplay.setText(formatMinutes(getPomoRemaining()));
+                  pomoStateText.setText((pomoFocus ? "专注" : "休息") + (pomoRunning ? "中" : "已暂停/待开始"));
+                  pomoCountText.setText("今日完成 " + getTodayPomoCount() + " 个番茄");
+              }
+          
+              private void increasePomoCount() {
+                  String today = today();
+                  String savedDay = pref.getString("pomoDay", "");
+                  int count = today.equals(savedDay) ? pref.getInt("pomoCount", 0) : 0;
+                  pref.edit().putString("pomoDay", today).putInt("pomoCount", count + 1).apply();
+              }
+          
+              private int getTodayPomoCount() {
+                  String today = today();
+                  return today.equals(pref.getString("pomoDay", "")) ? pref.getInt("pomoCount", 0) : 0;
+              }
+          
+              private String today() {
+                  return new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
+              }
+          
+              private void restoreTimerState() {
+                  timerMode = pref.getString("timerMode", "stopwatch");
+                  stopwatchElapsed = pref.getLong("stopwatchElapsed", 0);
+                  stopwatchRunning = pref.getBoolean("stopwatchRunning", false);
+                  countdownDuration = pref.getLong("countdownDuration", 5 * 60 * 1000L);
+                  countdownElapsed = pref.getLong("countdownElapsed", 0);
+                  countdownRunning = pref.getBoolean("countdownRunning", false);
+                  long savedAt = pref.getLong("timerSavedAt", SystemClock.elapsedRealtime());
+                  long delta = Math.max(0, SystemClock.elapsedRealtime() - savedAt);
+                  if (stopwatchRunning) {
+                      stopwatchElapsed += delta;
+                      stopwatchStartedAt = SystemClock.elapsedRealtime();
+                  }
+                  if (countdownRunning) {
+                      countdownElapsed = Math.min(countdownDuration, countdownElapsed + delta);
+                      if (countdownElapsed >= countdownDuration) countdownRunning = false;
+                      countdownStartedAt = SystemClock.elapsedRealtime();
+                  }
+              }
+          
+              private void saveTimerState() {
+                  pref.edit()
+                          .putString("timerMode", timerMode)
+                          .putLong("stopwatchElapsed", getStopwatchElapsed())
+                          .putBoolean("stopwatchRunning", stopwatchRunning)
+                          .putLong("countdownDuration", countdownDuration)
+                          .putLong("countdownElapsed", getCountdownElapsed())
+                          .putBoolean("countdownRunning", countdownRunning)
+                          .putLong("timerSavedAt", SystemClock.elapsedRealtime())
+                          .apply();
+              }
+          
+              private void restorePomoState() {
+                  int focusMin = pref.getInt("pomoFocusMin", 25);
+                  int restMin = pref.getInt("pomoRestMin", 5);
+                  pomoFocus = pref.getBoolean("pomoFocus", true);
+                  pomoDuration = pref.getLong("pomoDuration", (pomoFocus ? focusMin : restMin) * 60 * 1000L);
+                  pomoElapsed = pref.getLong("pomoElapsed", 0);
+                  pomoRunning = pref.getBoolean("pomoRunning", false);
+                  long savedAt = pref.getLong("pomoSavedAt", SystemClock.elapsedRealtime());
+                  long delta = Math.max(0, SystemClock.elapsedRealtime() - savedAt);
+                  if (pomoRunning) {
+                      pomoElapsed = Math.min(pomoDuration, pomoElapsed + delta);
+                      if (pomoElapsed >= pomoDuration) pomoRunning = false;
+                      pomoStartedAt = SystemClock.elapsedRealtime();
+                  }
+              }
+          
+              private void savePomoState() {
+                  pref.edit()
+                          .putBoolean("pomoFocus", pomoFocus)
+                          .putLong("pomoDuration", pomoDuration)
+                          .putLong("pomoElapsed", getPomoElapsed())
+                          .putBoolean("pomoRunning", pomoRunning)
+                          .putLong("pomoSavedAt", SystemClock.elapsedRealtime())
+                          .apply();
+              }
+          
+              private String formatTenths(long ms) {
+                  long tenths = Math.max(0, ms) / 100;
+                  long tenth = tenths % 10;
+                  long totalSeconds = tenths / 10;
+                  long seconds = totalSeconds % 60;
+                  long minutes = totalSeconds / 60;
+                  return String.format(Locale.getDefault(), "%02d:%02d.%d", minutes, seconds, tenth);
+              }
+          
+              private String formatMinutes(long ms) {
+                  long totalSeconds = Math.max(0, ms + 999) / 1000;
+                  long seconds = totalSeconds % 60;
+                  long minutes = totalSeconds / 60;
+                  return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds);
+              }
+          
+          
+              private void sendAiMessage() {
+                  String value = aiInput.getText().toString().trim();
+                  if (value.isEmpty() || aiSending) return;
+                  if (pref.getString("aiApiKey", "").trim().isEmpty()) {
+                      showStatus("请先在 AI设置 里填写 API Key");
+                      showPage("aiSettings");
+                      return;
+                  }
+                  appendAiMessage("user", value);
+                  aiInput.setText("");
+                  hideKeyboard();
+                  callAi(false);
+              }
+          
+              private void testAiConnection() {
+                  if (pref.getString("aiApiKey", "").trim().isEmpty()) {
+                      showStatus("请先填写 API Key");
+                      showPage("aiSettings");
+                      return;
+                  }
+                  appendAiMessage("user", "请用一句话回复：连接测试成功。");
+                  showPage("ai");
+                  callAi(true);
+              }
+          
+              private void callAi(boolean testMode) {
+                  aiSending = true;
+                  updateAiSendingUi();
+                  showStatus(testMode ? "正在测试 AI 连接..." : "AI 正在思考...");
+                  final String requestBody;
+                  try {
+                      requestBody = buildAiRequestBody();
+                      streamingAssistantIndex = appendAiMessage("assistant", "正在思考...");
+                  } catch (Exception e) {
+                      showStatus("AI 设置有问题：" + shortError(e.getMessage()));
+                      aiSending = false;
+                      updateAiSendingUi();
+                      return;
+                  }
+                  new Thread(() -> {
+                      try {
+                          String reply = requestAiCompletionStream(requestBody, delta -> runOnUiThread(() -> {
+                              if (streamingAssistantIndex >= 0 && !delta.trim().isEmpty()) {
+                                  updateAiMessage(streamingAssistantIndex, "assistant", delta);
+                              }
+                          }));
+                          runOnUiThread(() -> {
+                              String safeReply = reply == null ? "" : reply.trim();
+                              boolean hadContent = streamingAssistantIndex >= 0
+                                      && aiMessages.length() > streamingAssistantIndex
+                                      && !aiMessages.optJSONObject(streamingAssistantIndex).optString("content", "").trim().isEmpty();
+                              if (streamingAssistantIndex >= 0) {
+                                  if (!safeReply.isEmpty()) {
+                                      updateAiMessage(streamingAssistantIndex, "assistant", reply);
+                                  } else if (!hadContent) {
+                                      updateAiMessage(streamingAssistantIndex, "assistant", "AI 回复异常：模型返回了空内容。可能原因：额度不足、模型限流或网络异常。建议检查 API 设置或稍后重试。");
+                                  }
+                              } else {
+                                  appendAiMessage("assistant", safeReply.isEmpty() ? "AI 回复异常：模型返回了空内容。可能原因：额度不足、模型限流或网络异常。建议检查 API 设置或稍后重试。" : reply);
+                              }
+                              showStatus(safeReply.isEmpty() && !hadContent ? "AI 回复异常，请检查 API 状态" : "AI 回复完成");
+                              aiSending = false;
+                              streamingAssistantIndex = -1;
+                              updateAiSendingUi();
+                              renderAiMessages();
+                          });
+                      } catch (Exception e) {
+                          runOnUiThread(() -> {
+                              String fail = "请求失败：" + shortError(e.getMessage());
+                              if (streamingAssistantIndex >= 0) {
+                                  updateAiMessage(streamingAssistantIndex, "assistant", fail);
+                              } else {
+                                  appendAiMessage("assistant", fail);
+                              }
+                              showStatus("AI 请求失败，请检查 API 设置");
+                              aiSending = false;
+                              streamingAssistantIndex = -1;
+                              updateAiSendingUi();
+                          });
+                      }
+                  }).start();
+              }
+          
+              private void updateAiSendingUi() {
+                  if (aiSendButton == null) return;
+                  aiSendButton.setEnabled(!aiSending);
+                  aiSendButton.setText(aiSending ? "发送中..." : "发送");
+                  aiSendButton.setAlpha(aiSending ? 0.55f : 1f);
+              }
+          
+              private String buildAiRequestBody() throws Exception {
+                  String apiUrl = pref.getString("aiApiUrl", "").trim();
+                  String apiKey = pref.getString("aiApiKey", "").trim();
+                  String model = pref.getString("aiModel", "openrouter/free").trim();
+                  String systemPrompt = pref.getString("aiSystemPrompt", "").trim();
+                  if (apiUrl.isEmpty()) throw new Exception("API 地址为空");
+                  if (apiKey.isEmpty()) throw new Exception("API Key 为空");
+                  if (model.isEmpty()) throw new Exception("模型名为空");
+          
+                  JSONObject body = new JSONObject();
+                  body.put("model", model);
+                  JSONArray apiMessages = new JSONArray();
+                  if (!systemPrompt.isEmpty()) {
+                      JSONObject sys = new JSONObject();
+                      sys.put("role", "system");
+                      sys.put("content", systemPrompt);
+                      apiMessages.put(sys);
+                  }
+                  int start = Math.max(0, aiMessages.length() - 16);
+                  for (int i = start; i < aiMessages.length(); i++) {
+                      apiMessages.put(aiMessages.getJSONObject(i));
+                  }
+                  body.put("messages", apiMessages);
+                  body.put("temperature", 0.7);
+                  body.put("stream", true);
+                  return body.toString();
+              }
+          
+              private String requestAiCompletionStream(String requestBody, AiStreamCallback callback) throws Exception {
+                  String apiUrl = pref.getString("aiApiUrl", "").trim();
+                  String apiKey = pref.getString("aiApiKey", "").trim();
+          
+                  HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
+                  conn.setRequestMethod("POST");
+                  conn.setConnectTimeout(30000);
+                  conn.setReadTimeout(120000);
+                  conn.setDoOutput(true);
+                  conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                  conn.setRequestProperty("Accept", "text/event-stream");
+                  conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+          
+                  try (OutputStream os = conn.getOutputStream()) {
+                      os.write(requestBody.getBytes(StandardCharsets.UTF_8));
+                  }
+          
+                  int code = conn.getResponseCode();
+                  InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
+                  if (code < 200 || code >= 300) {
+                      String response = readAll(stream);
+                      throw new Exception("HTTP " + code + "：" + response);
+                  }
+          
+                  StringBuilder full = new StringBuilder();
+                  StringBuilder raw = new StringBuilder();
+                  int emptyChoicesCount = 0;
+                  int validChunksCount = 0;
+                  long lastUiUpdate = 0;
+                  BufferedReader br = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+                  String line;
+                  while ((line = br.readLine()) != null) {
+                      line = line.trim();
+                      if (line.isEmpty()) continue;
+                      if (!line.startsWith("data:")) {
+                          raw.append(line);
+                          continue;
+                      }
+                      String data = line.substring(5).trim();
+                      if ("[DONE]".equals(data)) break;
+                      try {
+                          JSONObject json = new JSONObject(data);
+                          JSONArray choices = json.optJSONArray("choices");
+                          if (choices == null || choices.length() == 0) {
+                              emptyChoicesCount++;
+                              continue;
+                          }
+                          JSONObject choice = choices.getJSONObject(0);
+                          JSONObject delta = choice.optJSONObject("delta");
+                          String piece = delta != null ? delta.optString("content", "") : "";
+                          if (!piece.isEmpty()) {
+                              full.append(piece);
+                              validChunksCount++;
+                              long now = SystemClock.elapsedRealtime();
+                              if (now - lastUiUpdate > 120) {
+                                  callback.onDelta(full.toString());
+                                  lastUiUpdate = now;
+                              }
+                          }
+                      } catch (Exception ignored) {}
+                  }
+                  String result = full.toString();
+                  if (!result.trim().isEmpty()) {
+                      callback.onDelta(result);
+                      return result;
+                  }
+                  String normal = raw.toString().trim();
+                  if (normal.startsWith("{")) return parseNormalAiResponse(normal);
+                  if (emptyChoicesCount > 0 && validChunksCount == 0) {
+                      throw new Exception("模型返回了空内容流（共 " + emptyChoicesCount + " 个空 chunk）。可能原因：额度不足、模型限流或服务异常。");
+                  }
+                  throw new Exception("没有收到 AI 回复内容");
+              }
+          
+              private interface AiStreamCallback {
+                  void onDelta(String fullText);
+              }
+          
+              private String parseNormalAiResponse(String response) throws Exception {
+                  JSONObject json = new JSONObject(response);
+                  JSONArray choices = json.getJSONArray("choices");
+                  JSONObject message = choices.getJSONObject(0).getJSONObject("message");
+                  return message.optString("content", "").trim();
+              }
+          
+              private String readAll(InputStream stream) throws Exception {
+                  BufferedReader br = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+                  StringBuilder sb = new StringBuilder();
+                  String line;
+                  boolean first = true;
+                  while ((line = br.readLine()) != null) {
+                      if (!first) sb.append('\n');
+                      sb.append(line);
+                      first = false;
+                  }
+                  return sb.toString();
+              }
+          
+              private int appendAiMessage(String role, String content) {
+                  try {
+                      JSONObject obj = new JSONObject();
+                      obj.put("role", role);
+                      obj.put("content", content);
+                      aiMessages.put(obj);
+                      saveAiMessages();
+                      renderAiMessages();
+                      return aiMessages.length() - 1;
+                  } catch (Exception ignored) {}
+                  return -1;
+              }
+          
+              private void updateAiMessage(int index, String role, String content) {
+                  try {
+                      if (index < 0 || index >= aiMessages.length()) return;
+                      JSONObject obj = new JSONObject();
+                      obj.put("role", role);
+                      obj.put("content", content);
+                      aiMessages.put(index, obj);
+                      saveAiMessages();
+                      renderAiMessages();
+                  } catch (Exception ignored) {}
+              }
+          
+              private void renderAiMessages() {
+                  if (aiMessageList == null) return;
+                  aiMessageList.removeAllViews();
+                  for (int i = 0; i < aiMessages.length(); i++) {
+                      try {
+                          JSONObject msg = aiMessages.getJSONObject(i);
+                          boolean streaming = aiSending && i == streamingAssistantIndex && "assistant".equals(msg.optString("role"));
+                          aiMessageList.addView(aiBubble(msg.optString("role"), msg.optString("content"), streaming));
+                      } catch (Exception ignored) {}
+                  }
+                  if (aiMessageScroll != null) {
+                      aiMessageScroll.post(() -> {
+                          aiMessageScroll.smoothScrollTo(0, aiMessageList.getBottom());
+                          reapplyAiKeyboardOffset();
+                      });
+                  }
+              }
+          
+              private void reapplyAiKeyboardOffset() {
+                  if (aiInputArea == null || rootContainer == null) return;
+                  if (!"ai".equals(currentPage)) return;
+                  rootContainer.post(() -> {
+                      Rect visible = new Rect();
+                      rootContainer.getWindowVisibleDisplayFrame(visible);
+                      int screenHeight = rootContainer.getRootView().getHeight();
+                      int keyboardHeight = screenHeight - visible.bottom;
+                      boolean keyboardOpen = keyboardHeight > screenHeight / 5;
+                      adjustAiInputForKeyboard(visible, keyboardOpen);
+                  });
+              }
+          
+              private View aiBubble(String role, String content, boolean streaming) {
+                  boolean user = "user".equals(role);
+                  LinearLayout wrap = new LinearLayout(this);
+                  wrap.setOrientation(LinearLayout.VERTICAL);
+                  TextView tv = text((user ? "你：\n" : "助手：\n") + content, 15, Color.WHITE);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(user ? Color.rgb(14, 116, 144) : Color.rgb(30, 41, 59));
+                  bg.setCornerRadius(20);
+                  tv.setBackground(bg);
+                  tv.setPadding(18, 14, 18, 14);
+                  wrap.addView(tv);
+                  if (!streaming) {
+                      Button copy = button(user ? "复制我的消息" : "复制 AI 回复");
+                      copy.setOnClickListener(v -> copyText(user ? "我的消息" : "AI 回复", content));
+                      wrap.addView(copy);
+                  }
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                  );
+                  lp.setMargins(0, 8, 0, 8);
+                  wrap.setLayoutParams(lp);
+                  return wrap;
+              }
+          
+              private void saveAiSettings() {
+                  pref.edit()
+                          .putString("aiApiUrl", apiUrlInput.getText().toString().trim())
+                          .putString("aiApiKey", apiKeyInput.getText().toString().trim())
+                          .putString("aiModel", modelInput.getText().toString().trim())
+                          .putString("aiSystemPrompt", systemPromptInput.getText().toString().trim())
+                          .apply();
+              }
+          
+              private void fillDefaultAiSettings() {
+                  apiUrlInput.setText("https://openrouter.ai/api/v1/chat/completions");
+                  modelInput.setText("openrouter/free");
+                  if (systemPromptInput.getText().toString().trim().isEmpty()) {
+                      systemPromptInput.setText("你是一个耐心、有逻辑、说中文的智能助手。回答要清晰、实用、不过度啰嗦。");
+                  }
+                  showStatus("已填入 OpenRouter 免费模型默认配置");
+              }
+          
+              private void loadAiMessages() {
+                  try {
+                      aiMessages = new JSONArray(pref.getString("aiMessages", "[]"));
+                  } catch (Exception e) {
+                      aiMessages = new JSONArray();
+                  }
+              }
+          
+              private void saveAiMessages() {
+                  pref.edit().putString("aiMessages", aiMessages.toString()).apply();
+              }
+          
+              private String shortError(String value) {
+                  if (value == null) return "未知错误";
+                  String cleaned = value.replace("\n", " ").trim();
+                  if (cleaned.length() > 500) return cleaned.substring(0, 500) + "...";
+                  return cleaned;
+              }
+          
+              private void copyText(String label, String value) {
+                  ClipboardManager manager = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                  if (manager != null) {
+                      manager.setPrimaryClip(ClipData.newPlainText(label, value));
+                      showStatus("已复制：" + label);
+                  }
+              }
+          
+              private void openUrl(String url) {
+                  try {
+                      startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                  } catch (Exception e) {
+                      toast("打不开这个网址");
+                  }
+              }
+          
+              private void ensureDefaults() {
+                  if (!pref.getBoolean("defaultsReady", false)) {
+                      JSONArray texts = new JSONArray();
+                      addDefaultText(texts, "GitHub Actions 文件名", ".github/workflows/build-apk.yml");
+                      addDefaultText(texts, "OpenRouter API 地址", "https://openrouter.ai/api/v1/chat/completions");
+                      addDefaultText(texts, "OpenRouter 免费模型", "openrouter/free");
+                      JSONArray links = new JSONArray();
+                      addDefaultLink(links, "GitHub", "https://github.com");
+                      addDefaultLink(links, "OpenRouter", "https://openrouter.ai");
+                      addDefaultLink(links, "OpenRouter Keys", "https://openrouter.ai/settings/keys");
+                      addDefaultLink(links, "DeepSeek API", "https://platform.deepseek.com");
+                      addDefaultLink(links, "Netlify Drop", "https://app.netlify.com/drop");
+                      pref.edit()
+                              .putString("texts", texts.toString())
+                              .putString("links", links.toString())
+                              .putBoolean("defaultsReady", true)
+                              .putInt("pomoFocusMin", 25)
+                              .putInt("pomoRestMin", 5)
+                              .apply();
+                  }
+              }
+          
+              private void refreshDefaultContentFor17() {
+                  if (pref.getBoolean("defaultsV17Ready", false)) return;
+                  JSONArray oldTexts = loadArray("texts");
+                  JSONArray newTexts = new JSONArray();
+                  for (int i = 0; i < oldTexts.length(); i++) {
+                      try {
+                          JSONObject obj = oldTexts.getJSONObject(i);
+                          String title = obj.optString("title", "");
+                          String content = obj.optString("content", "");
+                          if (title.contains("添加 APK 打包流程") || title.contains("升级版本")) continue;
+                          if ("添加安卓APK打包流程".equals(content) || "升级版本".equals(content)) continue;
+                          newTexts.put(obj);
+                      } catch (Exception ignored) {}
+                  }
+                  saveArray("texts", newTexts);
+          
+                  JSONArray links = loadArray("links");
+                  addLinkIfMissing(links, "Netlify", "https://www.netlify.com");
+                  addLinkIfMissing(links, "WebIntoApp 网页封装", "https://www.webintoapp.com");
+                  saveArray("links", links);
+                  pref.edit().putBoolean("defaultsV17Ready", true).apply();
+              }
+          
+              private void refreshDefaultContentFor171() {
+                  if (pref.getBoolean("defaultsV171Ready", false)) return;
+                  JSONArray oldLinks = loadArray("links");
+                  JSONArray newLinks = new JSONArray();
+                  for (int i = 0; i < oldLinks.length(); i++) {
+                      try {
+                          JSONObject obj = oldLinks.getJSONObject(i);
+                          String title = obj.optString("title", "");
+                          String url = obj.optString("url", "");
+                          if ("Netlify".equals(title) || "https://www.netlify.com".equalsIgnoreCase(url)) continue;
+                          if (title.contains("WebIntoApp") || "https://www.webintoapp.com".equalsIgnoreCase(url)) continue;
+                          newLinks.put(obj);
+                      } catch (Exception ignored) {}
+                  }
+                  addLinkIfMissing(newLinks, "Netlify Drop", "https://app.netlify.com/drop");
+                  saveArray("links", newLinks);
+                  pref.edit().putBoolean("defaultsV171Ready", true).apply();
+              }
+          
+              private void addLinkIfMissing(JSONArray array, String title, String url) {
+                  for (int i = 0; i < array.length(); i++) {
+                      try {
+                          JSONObject obj = array.getJSONObject(i);
+                          if (url.equalsIgnoreCase(obj.optString("url", "")) || title.equals(obj.optString("title", ""))) {
+                              return;
+                          }
+                      } catch (Exception ignored) {}
+                  }
+                  addDefaultLink(array, title, url);
+              }
+          
+              private void addDefaultText(JSONArray array, String title, String content) {
+                  try {
+                      JSONObject obj = new JSONObject();
+                      obj.put("title", title);
+                      obj.put("content", content);
+                      array.put(obj);
+                  } catch (Exception ignored) {}
+              }
+          
+              private void addDefaultLink(JSONArray array, String title, String url) {
+                  try {
+                      JSONObject obj = new JSONObject();
+                      obj.put("title", title);
+                      obj.put("url", url);
+                      array.put(obj);
+                  } catch (Exception ignored) {}
+              }
+          
+              private JSONArray loadArray(String key) {
+                  try {
+                      return new JSONArray(pref.getString(key, "[]"));
+                  } catch (Exception e) {
+                      return new JSONArray();
+                  }
+              }
+          
+              private void saveArray(String key, JSONArray array) {
+                  pref.edit().putString(key, array.toString()).apply();
+              }
+          
+              private void removeItem(String key, int index) {
+                  JSONArray source = loadArray(key);
+                  JSONArray result = new JSONArray();
+                  for (int i = 0; i < source.length(); i++) {
+                      if (i == index) continue;
+                      try {
+                          result.put(source.getJSONObject(i));
+                      } catch (Exception ignored) {}
+                  }
+                  saveArray(key, result);
+              }
+          
+              private void moveItem(String key, int from, int to, String type) {
+                  if ("text".equals(type) && editingTextIndex >= 0) {
+                      showStatus("请先保存或取消编辑");
+                      return;
+                  }
+                  if ("link".equals(type) && editingLinkIndex >= 0) {
+                      showStatus("请先保存或取消编辑");
+                      return;
+                  }
+                  JSONArray source = loadArray(key);
+                  if (from < 0 || to < 0 || from >= source.length() || to >= source.length()) return;
+                  JSONArray result = new JSONArray();
+                  try {
+                      JSONObject moving = source.getJSONObject(from);
+                      for (int i = 0; i < source.length(); i++) {
+                          if (i == from) continue;
+                          if (i == to && from > to) result.put(moving);
+                          result.put(source.getJSONObject(i));
+                          if (i == to && from < to) result.put(moving);
+                      }
+                      saveArray(key, result);
+                      if ("text".equals(type)) {
+                          renderSavedTexts();
+                          showStatus("已调整常用文本顺序");
+                      } else {
+                          renderLinks();
+                          showStatus("已调整快捷链接顺序");
+                      }
+                  } catch (Exception ignored) {}
+              }
+          
+              private String preview(String value) {
+                  String cleaned = value.trim();
+                  if (cleaned.length() <= 120) return cleaned;
+                  return cleaned.substring(0, 120) + "...";
+              }
+          
+              private void showPage(String pageName) {
+                  currentPage = pageName;
+                  hideKeyboard();
+                  hideStatus();
+                  boolean aiVisible = "ai".equals(pageName);
+                  rootScroll.setVisibility(aiVisible ? View.GONE : View.VISIBLE);
+                  homePage.setVisibility("home".equals(pageName) ? View.VISIBLE : View.GONE);
+                  splitPage.setVisibility("split".equals(pageName) ? View.VISIBLE : View.GONE);
+                  textPage.setVisibility("text".equals(pageName) ? View.VISIBLE : View.GONE);
+                  linkPage.setVisibility("link".equals(pageName) ? View.VISIBLE : View.GONE);
+                  timerPage.setVisibility("timer".equals(pageName) ? View.VISIBLE : View.GONE);
+                  pomoPage.setVisibility("pomo".equals(pageName) ? View.VISIBLE : View.GONE);
+                  aiPage.setVisibility(aiVisible ? View.VISIBLE : View.GONE);
+                  aiSettingsPage.setVisibility("aiSettings".equals(pageName) ? View.VISIBLE : View.GONE);
+                  backupPage.setVisibility("backup".equals(pageName) ? View.VISIBLE : View.GONE);
+                  if (aiVisible && aiMessageScroll != null) {
+                      aiMessageScroll.post(() -> aiMessageScroll.smoothScrollTo(0, aiMessageList.getBottom()));
+                  } else if (rootScroll != null) {
+                      rootScroll.post(() -> rootScroll.smoothScrollTo(0, 0));
+                  }
+              }
+          
+              @Override
+              public void onBackPressed() {
+                  if (!"home".equals(currentPage)) {
+                      showPage("home");
+                  } else {
+                      long now = SystemClock.elapsedRealtime();
+                      if (now - lastBackPressedAt < 1800) {
+                          super.onBackPressed();
+                      } else {
+                          lastBackPressedAt = now;
+                          showStatus("再按一次退出");
+                      }
+                  }
+              }
+          
+              private void showStatus(String message) {
+                  toast(message);
+              }
+          
+              private void hideStatus() {
+                  if (statusText == null) return;
+                  statusText.setVisibility(View.GONE);
+              }
+          
+              private TextView text(String value, int sp, int color) {
+                  TextView tv = new TextView(this);
+                  tv.setText(value);
+                  tv.setTextSize(sp);
+                  tv.setTextColor(color);
+                  tv.setPadding(0, 10, 0, 10);
+                  return tv;
+              }
+          
+              private TextView sectionTitle(String value) {
+                  TextView tv = text(value, 22, Color.WHITE);
+                  tv.setTypeface(Typeface.DEFAULT_BOLD);
+                  tv.setPadding(0, 28, 0, 10);
+                  return tv;
+              }
+          
+              private TextView infoCard(String value) {
+                  TextView tv = text(value, 14, Color.LTGRAY);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(Color.rgb(15, 23, 42));
+                  bg.setStroke(2, Color.rgb(51, 65, 85));
+                  bg.setCornerRadius(18);
+                  tv.setBackground(bg);
+                  tv.setPadding(18, 16, 18, 16);
+                  return tv;
+              }
+          
+              private Button button(String value) {
+                  Button b = new Button(this);
+                  b.setText(value);
+                  b.setTextSize(14);
+                  b.setAllCaps(false);
+                  b.setTextColor(Color.WHITE);
+                  GradientDrawable bg = new GradientDrawable(
+                          GradientDrawable.Orientation.LEFT_RIGHT,
+                          new int[]{Color.rgb(14, 165, 233), Color.rgb(16, 185, 129)}
+                  );
+                  bg.setCornerRadius(22);
+                  b.setBackground(bg);
+                  b.setPadding(6, 8, 6, 8);
+                  return b;
+              }
+          
+              private EditText inputBox(String hint) {
+                  EditText e = new EditText(this);
+                  e.setHint(hint);
+                  e.setTextColor(Color.WHITE);
+                  e.setHintTextColor(Color.rgb(148, 163, 184));
+                  e.setTextSize(16);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(Color.rgb(15, 23, 42));
+                  bg.setStroke(2, Color.rgb(51, 65, 85));
+                  bg.setCornerRadius(18);
+                  e.setBackground(bg);
+                  e.setPadding(16, 12, 16, 12);
+                  e.setOnFocusChangeListener((view, hasFocus) -> {
+                      if (hasFocus) {
+                          view.postDelayed(() -> scrollFocusedInputIntoView(view), 300);
+                      }
+                  });
+                  return e;
+              }
+          
+              private void installKeyboardGuard() {
+                  final View rootView = rootFrame;
+                  rootView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+                      Rect visible = new Rect();
+                      rootView.getWindowVisibleDisplayFrame(visible);
+                      int screenHeight = rootView.getRootView().getHeight();
+                      int keyboardHeight = Math.max(0, screenHeight - visible.bottom);
+                      boolean keyboardOpen = keyboardHeight > screenHeight * 0.15f;
+                      adjustAiInputForKeyboard(visible, keyboardOpen);
+                      int bottomPadding = keyboardOpen ? keyboardHeight + 420 : rootBaseBottomPadding;
+                      rootContainer.setPadding(
+                              rootContainer.getPaddingLeft(),
+                              rootContainer.getPaddingTop(),
+                              rootContainer.getPaddingRight(),
+                              bottomPadding
+                      );
+                      if (keyboardOpen && !"ai".equals(currentPage) && getCurrentFocus() instanceof EditText) {
+                          rootScroll.postDelayed(() -> scrollFocusedInputIntoView(getCurrentFocus()), 80);
+                      }
+                  });
+              }
+          
+              private void adjustAiInputForKeyboard(Rect visible, boolean keyboardOpen) {
+                  if (aiPage == null || aiInputArea == null) return;
+                  if (!"ai".equals(currentPage) || !keyboardOpen) {
+                      aiInputArea.setTranslationY(0);
+                      aiPage.setPadding(
+                              aiPage.getPaddingLeft(),
+                              aiPage.getPaddingTop(),
+                              aiPage.getPaddingRight(),
+                              aiBaseBottomPadding
+                      );
+                      return;
+                  }
+                  int screenHeight = rootFrame.getRootView().getHeight();
+                  int keyboardHeight = Math.max(0, screenHeight - visible.bottom);
+                  aiInputArea.setTranslationY(0);
+                  aiPage.setPadding(
+                          aiPage.getPaddingLeft(),
+                          aiPage.getPaddingTop(),
+                          aiPage.getPaddingRight(),
+                          keyboardHeight + aiBaseBottomPadding + 18
+                  );
+                  if (aiMessageScroll != null && aiMessageList != null) {
+                      aiMessageScroll.post(() -> aiMessageScroll.smoothScrollTo(0, aiMessageList.getBottom()));
+                  }
+              }
+          
+              private void scrollFocusedInputIntoView(View view) {
+                  if (view == null || rootScroll == null) return;
+                  if ("ai".equals(currentPage)) {
+                      view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true);
+                      return;
+                  }
+                  int[] scrollLocation = new int[2];
+                  int[] viewLocation = new int[2];
+                  rootScroll.getLocationOnScreen(scrollLocation);
+                  view.getLocationOnScreen(viewLocation);
+                  int viewBottom = viewLocation[1] - scrollLocation[1] + view.getHeight();
+                  Rect visible = new Rect();
+                  rootScroll.getWindowVisibleDisplayFrame(visible);
+                  int safeBottom = visible.bottom - scrollLocation[1] - 180;
+                  if (viewBottom > safeBottom) {
+                      rootScroll.smoothScrollBy(0, viewBottom - safeBottom + 160);
+                  }
+              }
+          
+              private LinearLayout card() {
+                  LinearLayout card = new LinearLayout(this);
+                  card.setOrientation(LinearLayout.VERTICAL);
+                  card.setPadding(16, 14, 16, 14);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(Color.rgb(15, 23, 42));
+                  bg.setStroke(2, Color.rgb(51, 65, 85));
+                  bg.setCornerRadius(18);
+                  card.setBackground(bg);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                  );
+                  lp.setMargins(0, 10, 0, 10);
+                  card.setLayoutParams(lp);
+                  return card;
+              }
+          
+              private LinearLayout labelWrap(String label, View child) {
+                  LinearLayout wrap = new LinearLayout(this);
+                  wrap.setOrientation(LinearLayout.VERTICAL);
+                  wrap.addView(text(label, 14, Color.LTGRAY));
+                  wrap.addView(child);
+                  return wrap;
+              }
+          
+              private LinearLayout row() {
+                  LinearLayout row = new LinearLayout(this);
+                  row.setOrientation(LinearLayout.HORIZONTAL);
+                  row.setGravity(Gravity.CENTER);
+                  row.setPadding(0, 8, 0, 8);
+                  return row;
+              }
+          
+              private LinearLayout page() {
+                  LinearLayout page = new LinearLayout(this);
+                  page.setOrientation(LinearLayout.VERTICAL);
+                  return page;
+              }
+          
+              private LinearLayout.LayoutParams weight() {
+                  return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+              }
+          
+              private int parseInt(String value, int fallback) {
+                  try {
+                      return Integer.parseInt(value.trim());
+                  } catch (Exception e) {
+                      return fallback;
+                  }
+              }
+          
+              private void hideKeyboard() {
+                  try {
+                      InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                      View view = getCurrentFocus();
+                      if (imm != null && view != null) imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+                  } catch (Exception ignored) {}
+              }
+          
+              private void buzz() {
+                  try {
+                      Vibrator vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+                      if (vibrator != null) vibrator.vibrate(600);
+                  } catch (Exception ignored) {}
+              }
+          
+              private void toast(String value) {
+                  Toast.makeText(this, value, Toast.LENGTH_SHORT).show();
+              }
+          }
+          TRAE_FILE_app_src_main_java_com_trae_phonehelper_MainActivity_java
+
+      - name: 构建 APK
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-helper-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
