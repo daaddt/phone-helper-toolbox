@@ -92,8 +92,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 30
-                  versionName "1.8.6"
+                  versionCode 31
+                  versionName "1.8.7"
               }
           
               compileOptions {
@@ -113,6 +113,8 @@ jobs:
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
           
               <application
                   android:allowBackup="false"
@@ -126,6 +128,11 @@ jobs:
                       android:excludeFromRecents="true"
                       android:showWhenLocked="true"
                       android:turnScreenOn="true" />
+          
+                  <service
+                      android:name=".AlarmSoundService"
+                      android:exported="false"
+                      android:foregroundServiceType="mediaPlayback" />
           
                   <receiver
                       android:name=".AlarmReceiver"
@@ -173,17 +180,20 @@ jobs:
           import android.app.Activity;
           import android.app.AlarmManager;
           import android.app.PendingIntent;
+          import android.Manifest;
           import android.content.ClipData;
           import android.content.ClipboardManager;
           import android.content.Context;
           import android.content.Intent;
           import android.content.SharedPreferences;
+          import android.content.pm.PackageManager;
           import android.graphics.Color;
           import android.graphics.Rect;
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
           import android.media.RingtoneManager;
           import android.net.Uri;
+          import android.os.Build;
           import android.os.Bundle;
           import android.os.Handler;
           import android.os.SystemClock;
@@ -223,6 +233,7 @@ jobs:
               private static final int CREATE_BACKUP_FILE = 3002;
               private static final int PICK_BACKUP_FILE = 3003;
               private static final int PICK_ALARM_RINGTONE = 3004;
+              private static final int PICK_ALARM_AUDIO = 3005;
               private SharedPreferences pref;
               private final Handler handler = new Handler();
           
@@ -287,6 +298,7 @@ jobs:
                   restoreTimerState();
                   restorePomoState();
                   selectedAlarmToneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString();
+                  requestAlarmPermissionsIfNeeded();
                   rescheduleEnabledAlarms();
                   loadAiMessages();
                   buildUi();
@@ -617,20 +629,30 @@ jobs:
                   alarmRepeatCheck.setTextSize(16);
                   alarmPage.addView(alarmRepeatCheck);
           
-                  LinearLayout actions = row();
-                  Button tone = button("选择铃声");
+                  LinearLayout toneActions = row();
+                  Button tone = button("系统铃声");
+                  Button audio = button("本机音乐");
+                  toneActions.addView(tone, weight());
+                  toneActions.addView(audio, weight());
+                  alarmPage.addView(toneActions);
+          
                   Button add = button("添加闹钟");
-                  actions.addView(tone, weight());
-                  actions.addView(add, weight());
-                  alarmPage.addView(actions);
+                  alarmPage.addView(add);
           
                   alarmList = new LinearLayout(this);
                   alarmList.setOrientation(LinearLayout.VERTICAL);
                   alarmPage.addView(alarmList);
           
                   tone.setOnClickListener(v -> chooseAlarmRingtone());
+                  audio.setOnClickListener(v -> chooseAlarmAudioFile());
                   add.setOnClickListener(v -> addSystemAlarmFromInput());
                   renderSystemAlarms();
+              }
+          
+              private void requestAlarmPermissionsIfNeeded() {
+                  if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9101);
+                  }
               }
           
               private void chooseAlarmRingtone() {
@@ -644,6 +666,14 @@ jobs:
                           : Uri.parse(selectedAlarmToneUri);
                   intent.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, current);
                   startActivityForResult(intent, PICK_ALARM_RINGTONE);
+              }
+          
+              private void chooseAlarmAudioFile() {
+                  Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                  intent.addCategory(Intent.CATEGORY_OPENABLE);
+                  intent.setType("audio/*");
+                  intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                  startActivityForResult(intent, PICK_ALARM_AUDIO);
               }
           
               private void addSystemAlarmFromInput() {
@@ -996,8 +1026,17 @@ jobs:
                       Uri picked = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
                       if (picked != null) {
                           selectedAlarmToneUri = picked.toString();
-                          showStatus("已选择闹钟铃声");
+                          showStatus("已选择系统闹钟铃声");
+                      } else {
+                          showStatus("没有选择铃声，请改用本机音乐");
                       }
+                  } else if (requestCode == PICK_ALARM_AUDIO && resultCode == RESULT_OK && data != null && data.getData() != null) {
+                      Uri picked = data.getData();
+                      try {
+                          getContentResolver().takePersistableUriPermission(picked, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                      } catch (Exception ignored) {}
+                      selectedAlarmToneUri = picked.toString();
+                      showStatus("已选择本机音乐");
                   }
               }
           
@@ -2352,8 +2391,8 @@ jobs:
                   String toneUri = alarm != null ? alarm.optString("toneUri", "") : "";
           
                   updateNextAlarm(context, alarmId, alarm);
+                  startAlarmSoundService(context, alarmId, label, toneUri);
                   showRingActivity(context, alarmId, label, toneUri);
-                  showNotification(context, alarmId, label, toneUri);
               }
           
               private JSONObject findAlarm(Context context, int alarmId) {
@@ -2429,6 +2468,18 @@ jobs:
                   return calendar.getTimeInMillis();
               }
           
+              private void startAlarmSoundService(Context context, int alarmId, String label, String toneUri) {
+                  Intent service = new Intent(context, AlarmSoundService.class);
+                  service.putExtra("alarmId", alarmId);
+                  service.putExtra("label", label);
+                  service.putExtra("toneUri", toneUri);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      context.startForegroundService(service);
+                  } else {
+                      context.startService(service);
+                  }
+              }
+          
               private void showRingActivity(Context context, int alarmId, String label, String toneUri) {
                   Intent ring = new Intent(context, AlarmRingActivity.class);
                   ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -2478,12 +2529,10 @@ jobs:
           import android.app.Activity;
           import android.app.NotificationManager;
           import android.content.Context;
+          import android.content.Intent;
           import android.graphics.Color;
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
-          import android.media.Ringtone;
-          import android.media.RingtoneManager;
-          import android.net.Uri;
           import android.os.Bundle;
           import android.os.Handler;
           import android.os.Vibrator;
@@ -2494,8 +2543,6 @@ jobs:
           import android.widget.TextView;
           
           public class AlarmRingActivity extends Activity {
-              private Ringtone ringtone;
-              private Vibrator vibrator;
               private final Handler handler = new Handler();
           
               @Override
@@ -2551,42 +2598,154 @@ jobs:
                   ));
           
                   setContentView(root);
-                  startAlarmSound(toneUri);
                   handler.postDelayed(this::finish, 120000);
-              }
-          
-              private void startAlarmSound(String toneUri) {
-                  try {
-                      Uri uri = toneUri == null || toneUri.isEmpty()
-                              ? RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                              : Uri.parse(toneUri);
-                      ringtone = RingtoneManager.getRingtone(this, uri);
-                      if (ringtone != null) ringtone.play();
-                  } catch (Exception ignored) {}
-                  try {
-                      vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-                      if (vibrator != null) {
-                          vibrator.vibrate(new long[]{0, 800, 500, 800, 500, 800}, 0);
-                      }
-                  } catch (Exception ignored) {}
               }
           
               @Override
               protected void onDestroy() {
                   super.onDestroy();
                   handler.removeCallbacksAndMessages(null);
-                  try {
-                      if (ringtone != null && ringtone.isPlaying()) ringtone.stop();
-                  } catch (Exception ignored) {}
-                  try {
-                      if (vibrator != null) vibrator.cancel();
-                  } catch (Exception ignored) {}
+                  stopService(new Intent(this, AlarmSoundService.class));
                   int alarmId = getIntent().getIntExtra("alarmId", 0);
                   NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                   if (manager != null && alarmId != 0) manager.cancel(alarmId);
               }
           }
           TRAE_FILE_app_src_main_java_com_trae_phonehelper_AlarmRingActivity_java
+
+          mkdir -p "$(dirname 'app/src/main/java/com/trae/phonehelper/AlarmSoundService.java')"
+          cat > 'app/src/main/java/com/trae/phonehelper/AlarmSoundService.java' <<'TRAE_FILE_app_src_main_java_com_trae_phonehelper_AlarmSoundService_java'
+          package com.trae.phonehelper;
+          
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.app.Service;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.media.AudioAttributes;
+          import android.media.MediaPlayer;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.IBinder;
+          import android.os.Vibrator;
+          
+          public class AlarmSoundService extends Service {
+              private static final String CHANNEL_ID = "phone_helper_alarm";
+              private MediaPlayer mediaPlayer;
+              private Vibrator vibrator;
+          
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  int alarmId = intent != null ? intent.getIntExtra("alarmId", 0) : 0;
+                  String label = intent != null ? intent.getStringExtra("label") : "闹钟";
+                  String toneUri = intent != null ? intent.getStringExtra("toneUri") : "";
+                  if (label == null || label.trim().isEmpty()) label = "闹钟";
+          
+                  startForeground(Math.max(1, alarmId), buildNotification(alarmId, label, toneUri));
+                  startSound(toneUri);
+                  startVibrate();
+                  return START_NOT_STICKY;
+              }
+          
+              private Notification buildNotification(int alarmId, String label, String toneUri) {
+                  NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (manager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "闹钟提醒", NotificationManager.IMPORTANCE_HIGH);
+                      channel.setDescription("手机助手工具箱闹钟提醒");
+                      channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                      manager.createNotificationChannel(channel);
+                  }
+          
+                  Intent ring = new Intent(this, AlarmRingActivity.class);
+                  ring.putExtra("alarmId", alarmId);
+                  ring.putExtra("label", label);
+                  ring.putExtra("toneUri", toneUri);
+                  ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  PendingIntent pendingIntent = PendingIntent.getActivity(
+                          this,
+                          alarmId + 200000,
+                          ring,
+                          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                  );
+          
+                  Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                          ? new Notification.Builder(this, CHANNEL_ID)
+                          : new Notification.Builder(this);
+                  return builder
+                          .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                          .setContentTitle("闹钟响了")
+                          .setContentText(label)
+                          .setContentIntent(pendingIntent)
+                          .setFullScreenIntent(pendingIntent, true)
+                          .setCategory(Notification.CATEGORY_ALARM)
+                          .setVisibility(Notification.VISIBILITY_PUBLIC)
+                          .setOngoing(true)
+                          .setPriority(Notification.PRIORITY_MAX)
+                          .build();
+              }
+          
+              private void startSound(String toneUri) {
+                  try {
+                      Uri uri = toneUri == null || toneUri.isEmpty()
+                              ? RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                              : Uri.parse(toneUri);
+                      mediaPlayer = new MediaPlayer();
+                      mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                              .setUsage(AudioAttributes.USAGE_ALARM)
+                              .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                              .build());
+                      mediaPlayer.setDataSource(this, uri);
+                      mediaPlayer.setLooping(true);
+                      mediaPlayer.prepare();
+                      mediaPlayer.start();
+                  } catch (Exception firstError) {
+                      try {
+                          Uri fallback = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+                          mediaPlayer = new MediaPlayer();
+                          mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                                  .setUsage(AudioAttributes.USAGE_ALARM)
+                                  .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                  .build());
+                          mediaPlayer.setDataSource(this, fallback);
+                          mediaPlayer.setLooping(true);
+                          mediaPlayer.prepare();
+                          mediaPlayer.start();
+                      } catch (Exception ignored) {}
+                  }
+              }
+          
+              private void startVibrate() {
+                  try {
+                      vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+                      if (vibrator != null) {
+                          vibrator.vibrate(new long[]{0, 900, 500, 900, 500, 900}, 0);
+                      }
+                  } catch (Exception ignored) {}
+              }
+          
+              @Override
+              public void onDestroy() {
+                  super.onDestroy();
+                  try {
+                      if (mediaPlayer != null) {
+                          mediaPlayer.stop();
+                          mediaPlayer.release();
+                      }
+                  } catch (Exception ignored) {}
+                  try {
+                      if (vibrator != null) vibrator.cancel();
+                  } catch (Exception ignored) {}
+              }
+          
+              @Override
+              public IBinder onBind(Intent intent) {
+                  return null;
+              }
+          }
+          TRAE_FILE_app_src_main_java_com_trae_phonehelper_AlarmSoundService_java
 
           mkdir -p "$(dirname 'app/src/main/java/com/trae/phonehelper/BootReceiver.java')"
           cat > 'app/src/main/java/com/trae/phonehelper/BootReceiver.java' <<'TRAE_FILE_app_src_main_java_com_trae_phonehelper_BootReceiver_java'
