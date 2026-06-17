@@ -109,13 +109,36 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
           
               <application
-                  android:allowBackup="true"
+                  android:allowBackup="false"
                   android:theme="@style/AppTheme"
                   android:label="手机助手工具箱"
                   android:resizeableActivity="true"
                   android:supportsRtl="true">
+                  <activity
+                      android:name=".AlarmRingActivity"
+                      android:exported="false"
+                      android:excludeFromRecents="true"
+                      android:showWhenLocked="true"
+                      android:turnScreenOn="true" />
+          
+                  <receiver
+                      android:name=".AlarmReceiver"
+                      android:exported="false" />
+          
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:exported="false">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      </intent-filter>
+                  </receiver>
+          
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
@@ -148,6 +171,8 @@ jobs:
           package com.trae.phonehelper;
           
           import android.app.Activity;
+          import android.app.AlarmManager;
+          import android.app.PendingIntent;
           import android.content.ClipData;
           import android.content.ClipboardManager;
           import android.content.Context;
@@ -157,6 +182,7 @@ jobs:
           import android.graphics.Rect;
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
+          import android.media.RingtoneManager;
           import android.net.Uri;
           import android.os.Bundle;
           import android.os.Handler;
@@ -187,6 +213,7 @@ jobs:
           import java.net.URL;
           import java.nio.charset.StandardCharsets;
           import java.text.SimpleDateFormat;
+          import java.util.Calendar;
           import java.util.Date;
           import java.util.Locale;
           
@@ -195,21 +222,22 @@ jobs:
               private static final int PICK_TEXT_FILE = 3001;
               private static final int CREATE_BACKUP_FILE = 3002;
               private static final int PICK_BACKUP_FILE = 3003;
+              private static final int PICK_ALARM_RINGTONE = 3004;
               private SharedPreferences pref;
               private final Handler handler = new Handler();
           
-              private LinearLayout homePage, splitPage, textPage, linkPage, timerPage, pomoPage, aiPage, aiSettingsPage, backupPage;
-              private LinearLayout splitResultList, savedTextList, linkList, aiMessageList, aiInputArea;
+              private LinearLayout homePage, splitPage, textPage, linkPage, timerPage, pomoPage, alarmPage, aiPage, aiSettingsPage, backupPage;
+              private LinearLayout splitResultList, savedTextList, linkList, alarmList, aiMessageList, aiInputArea;
               private FrameLayout rootFrame;
               private ScrollView rootScroll;
               private ScrollView aiMessageScroll;
               private LinearLayout rootContainer;
               private EditText longTextInput, splitSizeInput, titleInput, contentInput, linkTitleInput, linkUrlInput;
               private EditText aiInput, apiUrlInput, apiKeyInput, modelInput, systemPromptInput;
-              private TextView statusText, timerDisplay, pomoDisplay, pomoStateText, pomoCountText;
+              private TextView statusText, timerDisplay, pomoDisplay, pomoStateText, pomoCountText, alarmStatusText;
               private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
-              private CheckBox pomoLoopCheck;
-              private EditText timerMinuteInput, timerSecondInput, pomoFocusInput, pomoRestInput;
+              private CheckBox pomoLoopCheck, alarmRepeatCheck;
+              private EditText timerMinuteInput, timerSecondInput, pomoFocusInput, pomoRestInput, alarmHourInput, alarmMinuteInput, alarmLabelInput;
           
               private String timerMode = "stopwatch";
               private boolean stopwatchRunning = false;
@@ -225,6 +253,8 @@ jobs:
               private long pomoDuration = 25 * 60 * 1000L;
               private long pomoElapsed = 0;
               private long pomoStartedAt = 0;
+          
+              private String selectedAlarmToneUri = "";
           
               private JSONArray aiMessages = new JSONArray();
               private boolean aiSending = false;
@@ -256,6 +286,8 @@ jobs:
                   refreshDefaultContentFor171();
                   restoreTimerState();
                   restorePomoState();
+                  selectedAlarmToneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString();
+                  rescheduleEnabledAlarms();
                   loadAiMessages();
                   buildUi();
                   renderSavedTexts();
@@ -301,6 +333,7 @@ jobs:
                   linkPage = page();
                   timerPage = page();
                   pomoPage = page();
+                  alarmPage = page();
                   aiPage = page();
                   aiSettingsPage = page();
                   backupPage = page();
@@ -310,6 +343,7 @@ jobs:
                   rootContainer.addView(linkPage);
                   rootContainer.addView(timerPage);
                   rootContainer.addView(pomoPage);
+                  rootContainer.addView(alarmPage);
                   rootContainer.addView(aiSettingsPage);
                   rootContainer.addView(backupPage);
           
@@ -319,6 +353,7 @@ jobs:
                   buildLinkPage();
                   buildTimerPage();
                   buildPomoPage();
+                  buildAlarmPage();
                   buildAiPage();
                   buildAiSettingsPage();
                   buildBackupPage();
@@ -353,6 +388,7 @@ jobs:
                   homePage.addView(sectionTitle("学习工具"));
                   homePage.addView(homeButton("计时器", "正计时、倒计时和快速倒计时", "timer"));
                   homePage.addView(homeButton("番茄钟", "专注 25 分钟，休息 5 分钟，记录今日完成数", "pomo"));
+                  homePage.addView(homeButton("闹钟", "设置几点几分提醒，适合 App 打开时使用", "alarm"));
                   homePage.addView(sectionTitle("AI工具"));
                   homePage.addView(homeButton("AI聊天", "接入 OpenAI 兼容接口，支持 openrouter/free", "ai"));
                   homePage.addView(homeButton("AI设置", "填写 API 地址、API Key、模型名和智能体设定", "aiSettings"));
@@ -549,6 +585,263 @@ jobs:
                   updatePomoDisplay();
               }
           
+              private void buildAlarmPage() {
+                  alarmPage.addView(sectionTitle("系统级闹钟"));
+                  alarmPage.addView(infoCard("支持多个系统闹钟、每日重复和系统铃声选择器。铃声选择器会显示手机系统和主题商店已安装的闹钟铃声。"));
+          
+                  alarmStatusText = text("", 16, Color.rgb(125, 211, 252));
+                  alarmStatusText.setGravity(Gravity.CENTER);
+                  alarmPage.addView(alarmStatusText);
+          
+                  Calendar calendar = Calendar.getInstance();
+                  calendar.add(Calendar.HOUR_OF_DAY, 1);
+                  alarmHourInput = inputBox("小时 0-23");
+                  alarmHourInput.setSingleLine(true);
+                  alarmHourInput.setText(String.valueOf(calendar.get(Calendar.HOUR_OF_DAY)));
+                  alarmMinuteInput = inputBox("分钟 0-59");
+                  alarmMinuteInput.setSingleLine(true);
+                  alarmMinuteInput.setText(String.valueOf(calendar.get(Calendar.MINUTE)));
+                  alarmLabelInput = inputBox("提醒内容，例如 起床 / 学习 / 喝水");
+                  alarmLabelInput.setSingleLine(true);
+                  alarmLabelInput.setText("闹钟");
+          
+                  LinearLayout timeRow = row();
+                  timeRow.addView(labelWrap("小时", alarmHourInput), weight());
+                  timeRow.addView(labelWrap("分钟", alarmMinuteInput), weight());
+                  alarmPage.addView(timeRow);
+                  alarmPage.addView(labelWrap("提醒内容", alarmLabelInput));
+          
+                  alarmRepeatCheck = new CheckBox(this);
+                  alarmRepeatCheck.setText("每天重复");
+                  alarmRepeatCheck.setTextColor(Color.WHITE);
+                  alarmRepeatCheck.setTextSize(16);
+                  alarmPage.addView(alarmRepeatCheck);
+          
+                  LinearLayout actions = row();
+                  Button tone = button("选择铃声");
+                  Button add = button("添加闹钟");
+                  actions.addView(tone, weight());
+                  actions.addView(add, weight());
+                  alarmPage.addView(actions);
+          
+                  alarmList = new LinearLayout(this);
+                  alarmList.setOrientation(LinearLayout.VERTICAL);
+                  alarmPage.addView(alarmList);
+          
+                  tone.setOnClickListener(v -> chooseAlarmRingtone());
+                  add.setOnClickListener(v -> addSystemAlarmFromInput());
+                  renderSystemAlarms();
+              }
+          
+              private void chooseAlarmRingtone() {
+                  Intent intent = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+                  intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM);
+                  intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "选择闹钟铃声");
+                  intent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
+                  intent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false);
+                  Uri current = selectedAlarmToneUri == null || selectedAlarmToneUri.isEmpty()
+                          ? RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                          : Uri.parse(selectedAlarmToneUri);
+                  intent.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, current);
+                  startActivityForResult(intent, PICK_ALARM_RINGTONE);
+              }
+          
+              private void addSystemAlarmFromInput() {
+                  int hour = Math.max(0, Math.min(23, parseInt(alarmHourInput.getText().toString(), 7)));
+                  int minute = Math.max(0, Math.min(59, parseInt(alarmMinuteInput.getText().toString(), 0)));
+                  alarmHourInput.setText(String.valueOf(hour));
+                  alarmMinuteInput.setText(String.valueOf(minute));
+                  String label = alarmLabelInput.getText().toString().trim();
+                  if (label.isEmpty()) label = "闹钟";
+                  boolean repeatDaily = alarmRepeatCheck != null && alarmRepeatCheck.isChecked();
+                  if (selectedAlarmToneUri == null || selectedAlarmToneUri.isEmpty()) {
+                      selectedAlarmToneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString();
+                  }
+          
+                  try {
+                      JSONObject alarm = new JSONObject();
+                      alarm.put("id", (int) (System.currentTimeMillis() % Integer.MAX_VALUE));
+                      alarm.put("hour", hour);
+                      alarm.put("minute", minute);
+                      alarm.put("label", label);
+                      alarm.put("toneUri", selectedAlarmToneUri);
+                      alarm.put("repeatDaily", repeatDaily);
+                      alarm.put("enabled", true);
+                      alarm.put("nextAt", nextAlarmTime(hour, minute, System.currentTimeMillis()));
+          
+                      JSONArray alarms = loadArray("systemAlarms");
+                      alarms.put(alarm);
+                      saveArray("systemAlarms", alarms);
+                      scheduleSystemAlarm(alarm);
+                      renderSystemAlarms();
+                      hideKeyboard();
+                      showStatus("系统闹钟已添加：" + formatAlarmTime(alarm.optLong("nextAt")));
+                  } catch (Exception e) {
+                      showStatus("添加闹钟失败：" + shortError(e.getMessage()));
+                  }
+              }
+          
+              private long nextAlarmTime(int hour, int minute, long fromTime) {
+                  Calendar calendar = Calendar.getInstance();
+                  calendar.setTimeInMillis(fromTime);
+                  calendar.set(Calendar.HOUR_OF_DAY, hour);
+                  calendar.set(Calendar.MINUTE, minute);
+                  calendar.set(Calendar.SECOND, 0);
+                  calendar.set(Calendar.MILLISECOND, 0);
+                  if (calendar.getTimeInMillis() <= fromTime) {
+                      calendar.add(Calendar.DAY_OF_MONTH, 1);
+                  }
+                  return calendar.getTimeInMillis();
+              }
+          
+              private void renderSystemAlarms() {
+                  if (alarmList == null || alarmStatusText == null) return;
+                  alarmList.removeAllViews();
+                  JSONArray alarms = loadArray("systemAlarms");
+                  alarmStatusText.setText(alarms.length() == 0 ? "还没有闹钟" : "已保存 " + alarms.length() + " 个闹钟");
+                  for (int i = 0; i < alarms.length(); i++) {
+                      try {
+                          JSONObject alarm = alarms.getJSONObject(i);
+                          alarmList.addView(systemAlarmCard(i, alarm));
+                      } catch (Exception ignored) {}
+                  }
+              }
+          
+              private View systemAlarmCard(int index, JSONObject alarm) {
+                  LinearLayout card = card();
+                  boolean enabled = alarm.optBoolean("enabled", true);
+                  String title = String.format(Locale.getDefault(), "%02d:%02d  %s",
+                          alarm.optInt("hour", 7),
+                          alarm.optInt("minute", 0),
+                          alarm.optString("label", "闹钟"));
+                  TextView titleView = text(title, 20, enabled ? Color.WHITE : Color.rgb(148, 163, 184));
+                  titleView.setTypeface(Typeface.DEFAULT_BOLD);
+                  card.addView(titleView);
+                  String desc = (alarm.optBoolean("repeatDaily", false) ? "每天重复" : "响一次")
+                          + " · " + (enabled ? "下次：" + formatAlarmTime(alarm.optLong("nextAt")) : "已关闭");
+                  card.addView(text(desc, 14, Color.LTGRAY));
+                  LinearLayout actions = row();
+                  Button toggle = button(enabled ? "关闭" : "开启");
+                  Button delete = button("删除");
+                  toggle.setOnClickListener(v -> toggleSystemAlarm(index));
+                  delete.setOnClickListener(v -> deleteSystemAlarm(index));
+                  actions.addView(toggle, weight());
+                  actions.addView(delete, weight());
+                  card.addView(actions);
+                  return card;
+              }
+          
+              private void toggleSystemAlarm(int index) {
+                  JSONArray alarms = loadArray("systemAlarms");
+                  try {
+                      JSONObject alarm = alarms.getJSONObject(index);
+                      boolean enabled = !alarm.optBoolean("enabled", true);
+                      alarm.put("enabled", enabled);
+                      if (enabled) {
+                          alarm.put("nextAt", nextAlarmTime(alarm.optInt("hour", 7), alarm.optInt("minute", 0), System.currentTimeMillis()));
+                          scheduleSystemAlarm(alarm);
+                      } else {
+                          cancelSystemAlarm(alarm.optInt("id", 0));
+                      }
+                      alarms.put(index, alarm);
+                      saveArray("systemAlarms", alarms);
+                      renderSystemAlarms();
+                      showStatus(enabled ? "闹钟已开启" : "闹钟已关闭");
+                  } catch (Exception ignored) {}
+              }
+          
+              private void deleteSystemAlarm(int index) {
+                  JSONArray alarms = loadArray("systemAlarms");
+                  JSONArray result = new JSONArray();
+                  try {
+                      JSONObject target = alarms.getJSONObject(index);
+                      cancelSystemAlarm(target.optInt("id", 0));
+                  } catch (Exception ignored) {}
+                  for (int i = 0; i < alarms.length(); i++) {
+                      if (i == index) continue;
+                      try {
+                          result.put(alarms.getJSONObject(i));
+                      } catch (Exception ignored) {}
+                  }
+                  saveArray("systemAlarms", result);
+                  renderSystemAlarms();
+                  showStatus("闹钟已删除");
+              }
+          
+              private void rescheduleEnabledAlarms() {
+                  JSONArray alarms = loadArray("systemAlarms");
+                  boolean changed = false;
+                  for (int i = 0; i < alarms.length(); i++) {
+                      try {
+                          JSONObject alarm = alarms.getJSONObject(i);
+                          if (!alarm.optBoolean("enabled", true)) continue;
+                          long nextAt = alarm.optLong("nextAt", 0);
+                          if (nextAt <= System.currentTimeMillis()) {
+                              if (alarm.optBoolean("repeatDaily", false)) {
+                                  alarm.put("nextAt", nextAlarmTime(alarm.optInt("hour", 7), alarm.optInt("minute", 0), System.currentTimeMillis()));
+                                  alarms.put(i, alarm);
+                                  changed = true;
+                              } else {
+                                  alarm.put("enabled", false);
+                                  alarms.put(i, alarm);
+                                  changed = true;
+                                  continue;
+                              }
+                          }
+                          scheduleSystemAlarm(alarm);
+                      } catch (Exception ignored) {}
+                  }
+                  if (changed) saveArray("systemAlarms", alarms);
+              }
+          
+              private void scheduleSystemAlarm(JSONObject alarm) {
+                  try {
+                      AlarmManager manager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                      if (manager == null) return;
+                      int id = alarm.optInt("id", 0);
+                      Intent intent = new Intent(this, AlarmReceiver.class);
+                      intent.setAction("com.trae.phonehelper.ALARM_" + id);
+                      intent.putExtra("alarmId", id);
+                      PendingIntent operation = PendingIntent.getBroadcast(
+                              this,
+                              id,
+                              intent,
+                              PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+                      Intent showIntent = new Intent(this, MainActivity.class);
+                      PendingIntent showOperation = PendingIntent.getActivity(
+                              this,
+                              id + 100000,
+                              showIntent,
+                              PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+                      manager.setAlarmClock(new AlarmManager.AlarmClockInfo(alarm.optLong("nextAt"), showOperation), operation);
+                  } catch (Exception e) {
+                      showStatus("系统闹钟调度失败：" + shortError(e.getMessage()));
+                  }
+              }
+          
+              private void cancelSystemAlarm(int id) {
+                  try {
+                      AlarmManager manager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                      if (manager == null) return;
+                      Intent intent = new Intent(this, AlarmReceiver.class);
+                      intent.setAction("com.trae.phonehelper.ALARM_" + id);
+                      PendingIntent operation = PendingIntent.getBroadcast(
+                              this,
+                              id,
+                              intent,
+                              PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+                      manager.cancel(operation);
+                  } catch (Exception ignored) {}
+              }
+          
+              private String formatAlarmTime(long timeMillis) {
+                  if (timeMillis <= 0) return "未设置";
+                  return new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(new Date(timeMillis));
+              }
+          
               private void buildAiPage() {
                   aiPage.setPadding(24, 120, 24, aiBaseBottomPadding);
                   aiPage.setBackgroundColor(Color.rgb(7, 17, 31));
@@ -699,6 +992,12 @@ jobs:
                       exportBackup(data.getData());
                   } else if (requestCode == PICK_BACKUP_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
                       importBackup(data.getData());
+                  } else if (requestCode == PICK_ALARM_RINGTONE && resultCode == RESULT_OK && data != null) {
+                      Uri picked = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+                      if (picked != null) {
+                          selectedAlarmToneUri = picked.toString();
+                          showStatus("已选择闹钟铃声");
+                      }
                   }
               }
           
@@ -1784,6 +2083,7 @@ jobs:
                   linkPage.setVisibility("link".equals(pageName) ? View.VISIBLE : View.GONE);
                   timerPage.setVisibility("timer".equals(pageName) ? View.VISIBLE : View.GONE);
                   pomoPage.setVisibility("pomo".equals(pageName) ? View.VISIBLE : View.GONE);
+                  alarmPage.setVisibility("alarm".equals(pageName) ? View.VISIBLE : View.GONE);
                   aiPage.setVisibility(aiVisible ? View.VISIBLE : View.GONE);
                   aiSettingsPage.setVisibility("aiSettings".equals(pageName) ? View.VISIBLE : View.GONE);
                   backupPage.setVisibility("backup".equals(pageName) ? View.VISIBLE : View.GONE);
@@ -2020,6 +2320,359 @@ jobs:
               }
           }
           TRAE_FILE_app_src_main_java_com_trae_phonehelper_MainActivity_java
+
+          mkdir -p "$(dirname 'app/src/main/java/com/trae/phonehelper/AlarmReceiver.java')"
+          cat > 'app/src/main/java/com/trae/phonehelper/AlarmReceiver.java' <<'TRAE_FILE_app_src_main_java_com_trae_phonehelper_AlarmReceiver_java'
+          package com.trae.phonehelper;
+          
+          import android.app.AlarmManager;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.os.Build;
+          
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          
+          import java.util.Calendar;
+          
+          public class AlarmReceiver extends BroadcastReceiver {
+              private static final String PREF = "phone_helper_pref";
+              private static final String CHANNEL_ID = "phone_helper_alarm";
+          
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  int alarmId = intent.getIntExtra("alarmId", 0);
+                  JSONObject alarm = findAlarm(context, alarmId);
+                  String label = alarm != null ? alarm.optString("label", "闹钟") : "闹钟";
+                  String toneUri = alarm != null ? alarm.optString("toneUri", "") : "";
+          
+                  updateNextAlarm(context, alarmId, alarm);
+                  showRingActivity(context, alarmId, label, toneUri);
+                  showNotification(context, alarmId, label, toneUri);
+              }
+          
+              private JSONObject findAlarm(Context context, int alarmId) {
+                  try {
+                      SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                      JSONArray alarms = new JSONArray(pref.getString("systemAlarms", "[]"));
+                      for (int i = 0; i < alarms.length(); i++) {
+                          JSONObject alarm = alarms.getJSONObject(i);
+                          if (alarm.optInt("id", 0) == alarmId) return alarm;
+                      }
+                  } catch (Exception ignored) {}
+                  return null;
+              }
+          
+              private void updateNextAlarm(Context context, int alarmId, JSONObject target) {
+                  if (target == null) return;
+                  try {
+                      SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                      JSONArray alarms = new JSONArray(pref.getString("systemAlarms", "[]"));
+                      for (int i = 0; i < alarms.length(); i++) {
+                          JSONObject alarm = alarms.getJSONObject(i);
+                          if (alarm.optInt("id", 0) != alarmId) continue;
+                          if (alarm.optBoolean("repeatDaily", false)) {
+                              long nextAt = nextAlarmTime(alarm.optInt("hour", 7), alarm.optInt("minute", 0), System.currentTimeMillis());
+                              alarm.put("nextAt", nextAt);
+                              alarm.put("enabled", true);
+                              alarms.put(i, alarm);
+                              pref.edit().putString("systemAlarms", alarms.toString()).apply();
+                              scheduleNext(context, alarm);
+                          } else {
+                              alarm.put("enabled", false);
+                              alarms.put(i, alarm);
+                              pref.edit().putString("systemAlarms", alarms.toString()).apply();
+                          }
+                          break;
+                      }
+                  } catch (Exception ignored) {}
+              }
+          
+              private void scheduleNext(Context context, JSONObject alarm) {
+                  try {
+                      AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                      if (manager == null) return;
+                      int id = alarm.optInt("id", 0);
+                      Intent intent = new Intent(context, AlarmReceiver.class);
+                      intent.setAction("com.trae.phonehelper.ALARM_" + id);
+                      intent.putExtra("alarmId", id);
+                      PendingIntent operation = PendingIntent.getBroadcast(
+                              context,
+                              id,
+                              intent,
+                              PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+                      Intent showIntent = new Intent(context, MainActivity.class);
+                      PendingIntent showOperation = PendingIntent.getActivity(
+                              context,
+                              id + 100000,
+                              showIntent,
+                              PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+                      manager.setAlarmClock(new AlarmManager.AlarmClockInfo(alarm.optLong("nextAt"), showOperation), operation);
+                  } catch (Exception ignored) {}
+              }
+          
+              private long nextAlarmTime(int hour, int minute, long fromTime) {
+                  Calendar calendar = Calendar.getInstance();
+                  calendar.setTimeInMillis(fromTime);
+                  calendar.set(Calendar.HOUR_OF_DAY, hour);
+                  calendar.set(Calendar.MINUTE, minute);
+                  calendar.set(Calendar.SECOND, 0);
+                  calendar.set(Calendar.MILLISECOND, 0);
+                  if (calendar.getTimeInMillis() <= fromTime) calendar.add(Calendar.DAY_OF_MONTH, 1);
+                  return calendar.getTimeInMillis();
+              }
+          
+              private void showRingActivity(Context context, int alarmId, String label, String toneUri) {
+                  Intent ring = new Intent(context, AlarmRingActivity.class);
+                  ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  ring.putExtra("alarmId", alarmId);
+                  ring.putExtra("label", label);
+                  ring.putExtra("toneUri", toneUri);
+                  context.startActivity(ring);
+              }
+          
+              private void showNotification(Context context, int alarmId, String label, String toneUri) {
+                  NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (manager == null) return;
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "闹钟提醒", NotificationManager.IMPORTANCE_HIGH);
+                      channel.setDescription("手机助手工具箱闹钟提醒");
+                      manager.createNotificationChannel(channel);
+                  }
+                  Intent ring = new Intent(context, AlarmRingActivity.class);
+                  ring.putExtra("alarmId", alarmId);
+                  ring.putExtra("label", label);
+                  ring.putExtra("toneUri", toneUri);
+                  PendingIntent pendingIntent = PendingIntent.getActivity(
+                          context,
+                          alarmId + 200000,
+                          ring,
+                          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                  );
+                  android.app.Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                          ? new android.app.Notification.Builder(context, CHANNEL_ID)
+                          : new android.app.Notification.Builder(context);
+                  builder.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                          .setContentTitle("闹钟响了")
+                          .setContentText(label)
+                          .setContentIntent(pendingIntent)
+                          .setFullScreenIntent(pendingIntent, true)
+                          .setAutoCancel(true)
+                          .setPriority(android.app.Notification.PRIORITY_HIGH);
+                  manager.notify(alarmId, builder.build());
+              }
+          }
+          TRAE_FILE_app_src_main_java_com_trae_phonehelper_AlarmReceiver_java
+
+          mkdir -p "$(dirname 'app/src/main/java/com/trae/phonehelper/AlarmRingActivity.java')"
+          cat > 'app/src/main/java/com/trae/phonehelper/AlarmRingActivity.java' <<'TRAE_FILE_app_src_main_java_com_trae_phonehelper_AlarmRingActivity_java'
+          package com.trae.phonehelper;
+          
+          import android.app.Activity;
+          import android.app.NotificationManager;
+          import android.content.Context;
+          import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.graphics.drawable.GradientDrawable;
+          import android.media.Ringtone;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Vibrator;
+          import android.view.Gravity;
+          import android.view.WindowManager;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          
+          public class AlarmRingActivity extends Activity {
+              private Ringtone ringtone;
+              private Vibrator vibrator;
+              private final Handler handler = new Handler();
+          
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().addFlags(
+                          WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                                  | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                                  | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                  );
+          
+                  String label = getIntent().getStringExtra("label");
+                  if (label == null || label.trim().isEmpty()) label = "闹钟";
+                  String toneUri = getIntent().getStringExtra("toneUri");
+          
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setGravity(Gravity.CENTER);
+                  root.setPadding(32, 32, 32, 32);
+                  root.setBackgroundColor(Color.rgb(7, 17, 31));
+          
+                  TextView title = new TextView(this);
+                  title.setText("闹钟响了");
+                  title.setTextSize(34);
+                  title.setTextColor(Color.WHITE);
+                  title.setTypeface(Typeface.DEFAULT_BOLD);
+                  title.setGravity(Gravity.CENTER);
+                  root.addView(title);
+          
+                  TextView message = new TextView(this);
+                  message.setText(label);
+                  message.setTextSize(22);
+                  message.setTextColor(Color.rgb(125, 211, 252));
+                  message.setGravity(Gravity.CENTER);
+                  message.setPadding(0, 28, 0, 28);
+                  root.addView(message);
+          
+                  Button dismiss = new Button(this);
+                  dismiss.setText("关闭闹钟");
+                  dismiss.setTextSize(18);
+                  dismiss.setAllCaps(false);
+                  dismiss.setTextColor(Color.WHITE);
+                  GradientDrawable bg = new GradientDrawable(
+                          GradientDrawable.Orientation.LEFT_RIGHT,
+                          new int[]{Color.rgb(14, 165, 233), Color.rgb(16, 185, 129)}
+                  );
+                  bg.setCornerRadius(28);
+                  dismiss.setBackground(bg);
+                  dismiss.setOnClickListener(v -> finish());
+                  root.addView(dismiss, new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                  ));
+          
+                  setContentView(root);
+                  startAlarmSound(toneUri);
+                  handler.postDelayed(this::finish, 120000);
+              }
+          
+              private void startAlarmSound(String toneUri) {
+                  try {
+                      Uri uri = toneUri == null || toneUri.isEmpty()
+                              ? RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                              : Uri.parse(toneUri);
+                      ringtone = RingtoneManager.getRingtone(this, uri);
+                      if (ringtone != null) ringtone.play();
+                  } catch (Exception ignored) {}
+                  try {
+                      vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+                      if (vibrator != null) {
+                          vibrator.vibrate(new long[]{0, 800, 500, 800, 500, 800}, 0);
+                      }
+                  } catch (Exception ignored) {}
+              }
+          
+              @Override
+              protected void onDestroy() {
+                  super.onDestroy();
+                  handler.removeCallbacksAndMessages(null);
+                  try {
+                      if (ringtone != null && ringtone.isPlaying()) ringtone.stop();
+                  } catch (Exception ignored) {}
+                  try {
+                      if (vibrator != null) vibrator.cancel();
+                  } catch (Exception ignored) {}
+                  int alarmId = getIntent().getIntExtra("alarmId", 0);
+                  NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (manager != null && alarmId != 0) manager.cancel(alarmId);
+              }
+          }
+          TRAE_FILE_app_src_main_java_com_trae_phonehelper_AlarmRingActivity_java
+
+          mkdir -p "$(dirname 'app/src/main/java/com/trae/phonehelper/BootReceiver.java')"
+          cat > 'app/src/main/java/com/trae/phonehelper/BootReceiver.java' <<'TRAE_FILE_app_src_main_java_com_trae_phonehelper_BootReceiver_java'
+          package com.trae.phonehelper;
+          
+          import android.app.AlarmManager;
+          import android.app.PendingIntent;
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          
+          import java.util.Calendar;
+          
+          public class BootReceiver extends BroadcastReceiver {
+              private static final String PREF = "phone_helper_pref";
+          
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  if (intent == null || !Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) return;
+                  try {
+                      SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                      JSONArray alarms = new JSONArray(pref.getString("systemAlarms", "[]"));
+                      boolean changed = false;
+                      for (int i = 0; i < alarms.length(); i++) {
+                          JSONObject alarm = alarms.getJSONObject(i);
+                          if (!alarm.optBoolean("enabled", true)) continue;
+                          long nextAt = alarm.optLong("nextAt", 0);
+                          if (nextAt <= System.currentTimeMillis()) {
+                              if (alarm.optBoolean("repeatDaily", false)) {
+                                  alarm.put("nextAt", nextAlarmTime(alarm.optInt("hour", 7), alarm.optInt("minute", 0), System.currentTimeMillis()));
+                                  alarms.put(i, alarm);
+                                  changed = true;
+                              } else {
+                                  alarm.put("enabled", false);
+                                  alarms.put(i, alarm);
+                                  changed = true;
+                                  continue;
+                              }
+                          }
+                          schedule(context, alarm);
+                      }
+                      if (changed) pref.edit().putString("systemAlarms", alarms.toString()).apply();
+                  } catch (Exception ignored) {}
+              }
+          
+              private void schedule(Context context, JSONObject alarm) {
+                  try {
+                      AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                      if (manager == null) return;
+                      int id = alarm.optInt("id", 0);
+                      Intent intent = new Intent(context, AlarmReceiver.class);
+                      intent.setAction("com.trae.phonehelper.ALARM_" + id);
+                      intent.putExtra("alarmId", id);
+                      PendingIntent operation = PendingIntent.getBroadcast(
+                              context,
+                              id,
+                              intent,
+                              PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+                      Intent showIntent = new Intent(context, MainActivity.class);
+                      PendingIntent showOperation = PendingIntent.getActivity(
+                              context,
+                              id + 100000,
+                              showIntent,
+                              PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+                      manager.setAlarmClock(new AlarmManager.AlarmClockInfo(alarm.optLong("nextAt"), showOperation), operation);
+                  } catch (Exception ignored) {}
+              }
+          
+              private long nextAlarmTime(int hour, int minute, long fromTime) {
+                  Calendar calendar = Calendar.getInstance();
+                  calendar.setTimeInMillis(fromTime);
+                  calendar.set(Calendar.HOUR_OF_DAY, hour);
+                  calendar.set(Calendar.MINUTE, minute);
+                  calendar.set(Calendar.SECOND, 0);
+                  calendar.set(Calendar.MILLISECOND, 0);
+                  if (calendar.getTimeInMillis() <= fromTime) calendar.add(Calendar.DAY_OF_MONTH, 1);
+                  return calendar.getTimeInMillis();
+              }
+          }
+          TRAE_FILE_app_src_main_java_com_trae_phonehelper_BootReceiver_java
 
       - name: 构建 APK
         run: gradle --no-daemon :app:assembleDebug
