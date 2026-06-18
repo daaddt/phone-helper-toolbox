@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 34
-                  versionName "1.9.0"
+                  versionCode 35
+                  versionName "1.9.1"
               }
           
               compileOptions {
@@ -823,8 +823,19 @@ jobs:
               }
           
               private void requestAlarmPermissions() {
-                  showAlarmPermissionCenter();
-                  showStatus("请选择需要开启的系统权限");
+                  openAppPermissionSettings();
+              }
+          
+              private void openAppPermissionSettings() {
+                  try {
+                      Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+                      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                      startActivity(i);
+                      showStatus("已打开本软件的系统权限设置页");
+                  } catch (Exception e) {
+                      showAlarmPermissionCenter();
+                      showStatus("请选择需要开启的系统权限");
+                  }
               }
           
               private void showAlarmPermissionCenter() {
@@ -1241,6 +1252,10 @@ jobs:
                   hm.addView(mInput, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
                   lay.addView(hm);
                   lay.addView(lInput);
+                  if (editIndex < 0) {
+                      TextView toneHint = text("铃声：沿用上次选择（" + lastAlarmToneName() + "）", 14, Color.rgb(148, 163, 184));
+                      lay.addView(toneHint);
+                  }
                   lay.addView(repeatTitle);
                   lay.addView(weekRow1);
                   lay.addView(weekRow2);
@@ -1255,7 +1270,7 @@ jobs:
                       if (finalEditIndex >= 0) {
                           updateAlarm(finalEditIndex, hour, minute, label, repeatDays);
                       } else {
-                          addAlarm(hour, minute, label, repeatDays, "");
+                          addAlarm(hour, minute, label, repeatDays, pref.getString("lastAlarmToneUri", ""));
                       }
                   });
                   b.setNegativeButton("\u53d6\u6d88", null);
@@ -1274,6 +1289,11 @@ jobs:
               }
           
               private String allWeekDays() { return "0,1,2,3,4,5,6"; }
+          
+              private String lastAlarmToneName() {
+                  String uri = pref.getString("lastAlarmToneUri", "");
+                  return uri.isEmpty() ? "系统默认闹钟" : ringtoneTitleOf(uri);
+              }
           
               private String repeatDaysText(String repeatDays) {
                   if (repeatDays == null || repeatDays.trim().isEmpty()) return "只响一次";
@@ -1935,15 +1955,17 @@ jobs:
               private void applyToneToAlarm(int index, String uriStr) {
                   if (index < 0) return;
                   try {
+                      String savedUri = uriStr != null ? uriStr : "";
+                      pref.edit().putString("lastAlarmToneUri", savedUri).apply();
                       JSONArray alarms = loadArray("systemAlarms");
                       JSONObject a = alarms.getJSONObject(index);
-                      a.put("toneUri", uriStr != null ? uriStr : "");
+                      a.put("toneUri", savedUri);
                       alarms.put(index, a);
                       saveArray("systemAlarms", alarms);
                       if (a.optBoolean("enabled", false)) AlarmReceiver.scheduleExactAlarm(this, a);
                       renderAlarmList();
                       updateAlarmDisplay();
-                      showStatus(uriStr.isEmpty() ? "\u5df2\u6062\u590d\u7cfb\u7edf\u9ed8\u8ba4\u94c3\u58f0" : "\u94c3\u58f0\u5df2\u4fdd\u5b58");
+                      showStatus(savedUri.isEmpty() ? "\u5df2\u6062\u590d\u7cfb\u7edf\u9ed8\u8ba4\u94c3\u58f0\uff0c\u4e0b\u6b21\u65b0\u5efa\u95f9\u949f\u4e5f\u4f1a\u6cbf\u7528" : "\u94c3\u58f0\u5df2\u4fdd\u5b58\uff0c\u4e0b\u6b21\u65b0\u5efa\u95f9\u949f\u4f1a\u81ea\u52a8\u6cbf\u7528");
                   } catch (Exception ignored) {}
               }
           
