@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 35
-                  versionName "1.9.1"
+                  versionCode 36
+                  versionName "1.9.2"
               }
           
               compileOptions {
@@ -175,6 +175,10 @@ jobs:
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.BOOT_COMPLETED" />
+                          <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                          <action android:name="android.intent.action.TIME_SET" />
+                          <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                       </intent-filter>
                   </receiver>
           
@@ -642,7 +646,11 @@ jobs:
                   if (intent == null) return;
                   String action = intent.getAction();
                   if (action == null) return;
-                  if (!action.equals("android.intent.action.BOOT_COMPLETED")) return;
+                  if (!action.equals("android.intent.action.BOOT_COMPLETED")
+                      && !action.equals("android.intent.action.LOCKED_BOOT_COMPLETED")
+                      && !action.equals("android.intent.action.MY_PACKAGE_REPLACED")
+                      && !action.equals("android.intent.action.TIME_SET")
+                      && !action.equals("android.intent.action.TIMEZONE_CHANGED")) return;
           
                   try {
                       SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
@@ -656,8 +664,10 @@ jobs:
                                   alarm.put("nextAt", nextAt);
                               }
                               AlarmReceiver.scheduleExactAlarm(context, alarm);
+                              alarms.put(i, alarm);
                           }
                       }
+                      pref.edit().putString("systemAlarms", alarms.toString()).apply();
                   } catch (Exception ignored) {}
               }
           
@@ -787,6 +797,13 @@ jobs:
           
               private JSONArray aiMessages = new JSONArray();
               private boolean aiSending = false;
+              private String aiTypingTargetText = "";
+              private String aiTypingDisplayText = "";
+              private int aiTypingMessageIndex = -1;
+              private boolean aiTypingActive = false;
+              private boolean aiTypingFinished = false;
+              private String aiTypingFinalText = "";
+              private Runnable aiTypingDoneAction = null;
               private int rootBaseBottomPadding = 28;
               private int aiBaseBottomPadding = 20;
               private String currentPage = "home";
@@ -805,6 +822,13 @@ jobs:
                   }
               };
           
+              private final Runnable aiTypingTicker = new Runnable() {
+                  @Override
+                  public void run() {
+                      runAiTypingTick();
+                  }
+              };
+          
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
@@ -819,6 +843,9 @@ jobs:
                   buildUi();
                   renderSavedTexts();
                   renderLinks();
+                  renderAlarmList();
+                  reconcileAlarmSchedules();
+                  updateAlarmDisplay();
                   handler.post(tick);
               }
           
@@ -894,6 +921,15 @@ jobs:
                   super.onPause();
                   saveTimerState();
                   savePomoState();
+                  reconcileAlarmSchedules();
+              }
+          
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  renderAlarmList();
+                  reconcileAlarmSchedules();
+                  updateAlarmDisplay();
               }
           
               @Override
@@ -901,7 +937,9 @@ jobs:
                   super.onDestroy();
                   saveTimerState();
                   savePomoState();
+                  reconcileAlarmSchedules();
                   handler.removeCallbacks(tick);
+                  stopAiTypewriter();
               }
           
               private void buildUi() {
@@ -1165,6 +1203,7 @@ jobs:
                   alarmList.setOrientation(LinearLayout.VERTICAL);
                   alarmPage.addView(alarmList);
           
+                  renderAlarmList();
                   updateAlarmDisplay();
               }
           
@@ -1368,6 +1407,32 @@ jobs:
                       for (int i = 0; i < alarms.length(); i++) {
                           alarmList.addView(alarmCard(alarms.getJSONObject(i), i));
                       }
+                  } catch (Exception ignored) {}
+              }
+          
+              private void reconcileAlarmSchedules() {
+                  try {
+                      JSONArray alarms = loadArray("systemAlarms");
+                      boolean changed = false;
+                      long now = System.currentTimeMillis();
+                      for (int i = 0; i < alarms.length(); i++) {
+                          JSONObject a = alarms.getJSONObject(i);
+                          if (!a.optBoolean("enabled", false)) continue;
+                          String rd = a.optString("repeatDays", "");
+                          if (rd.isEmpty() && a.optBoolean("repeatDaily", false)) {
+                              rd = allWeekDays();
+                              a.put("repeatDays", rd);
+                              changed = true;
+                          }
+                          long nextAt = a.optLong("nextAt", 0);
+                          if (nextAt <= now) {
+                              a.put("nextAt", nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), rd));
+                              changed = true;
+                          }
+                          AlarmReceiver.scheduleExactAlarm(this, a);
+                          alarms.put(i, a);
+                      }
+                      if (changed) saveArray("systemAlarms", alarms);
                   } catch (Exception ignored) {}
               }
           
@@ -2379,6 +2444,7 @@ jobs:
               }
           
               private void callAi(boolean testMode) {
+                  stopAiTypewriter();
                   aiSending = true; updateAiSendingUi();
                   showStatus(testMode ? "\u6b63\u5728\u6d4b\u8bd5 AI \u8fde\u63a5..." : "AI \u6b63\u5728\u601d\u8003...");
                   final String requestBody;
@@ -2387,22 +2453,24 @@ jobs:
                       aiSending = false; updateAiSendingUi(); return;
                   }
                   final int streamingIdx = appendAiMessage("assistant", "\u6b63\u5728\u601d\u8003...");
+                  streamingAssistantIndex = streamingIdx;
+                  startAiTypewriter(streamingIdx);
                   new Thread(() -> {
                       try {
                           String reply = requestAiCompletionStream(requestBody, delta -> runOnUiThread(() -> {
-                              if (streamingIdx >= 0 && !delta.trim().isEmpty()) updateAiMessage(streamingIdx, "assistant", delta);
+                              if (streamingIdx >= 0 && !delta.trim().isEmpty()) pushAiTypingTarget(delta);
                           }));
                           runOnUiThread(() -> {
-                              boolean hadContent = streamingIdx >= 0 && aiMessages.length() > streamingIdx && !aiMessages.optJSONObject(streamingIdx).optString("content", "").trim().isEmpty();
-                              if (streamingIdx >= 0) {
-                                  if (reply != null && !reply.trim().isEmpty()) updateAiMessage(streamingIdx, "assistant", reply);
-                                  else if (!hadContent) updateAiMessage(streamingIdx, "assistant", "AI \u56de\u590d\u5f02\u5e38\uff1a\u6a21\u578b\u8fd4\u56de\u4e86\u7a7a\u5185\u5bb9\u3002\u53ef\u80fd\u539f\u56e0\uff1a\u989d\u5ea6\u4e0d\u8db3\u3001\u6a21\u578b\u9650\u6d41\u6216\u7f51\u7edc\u5f02\u5e38\u3002\u5efa\u8bae\u68c0\u67e5 API \u8bbe\u7f6e\u6216\u7a0d\u540e\u91cd\u8bd5\u3002");
-                              }
-                              showStatus((reply == null || reply.trim().isEmpty()) && !hadContent ? "AI \u56de\u590d\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5 API \u72b6\u6001" : "AI \u56de\u590d\u5b8c\u6210");
-                              aiSending = false; updateAiSendingUi(); renderAiMessages();
+                              boolean hasReply = reply != null && !reply.trim().isEmpty();
+                              String finalText = hasReply ? reply : "AI \u56de\u590d\u5f02\u5e38\uff1a\u6a21\u578b\u8fd4\u56de\u4e86\u7a7a\u5185\u5bb9\u3002\u53ef\u80fd\u539f\u56e0\uff1a\u989d\u5ea6\u4e0d\u8db3\u3001\u6a21\u578b\u9650\u6d41\u6216\u7f51\u7edc\u5f02\u5e38\u3002\u5efa\u8bae\u68c0\u67e5 API \u8bbe\u7f6e\u6216\u7a0d\u540e\u91cd\u8bd5\u3002";
+                              finishAiTypewriter(finalText, () -> {
+                                  showStatus(hasReply ? "AI \u56de\u590d\u5b8c\u6210" : "AI \u56de\u590d\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5 API \u72b6\u6001");
+                                  aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi(); renderAiMessages();
+                              });
                           });
                       } catch (Exception e) {
                           runOnUiThread(() -> {
+                              stopAiTypewriter();
                               String fail = "\u8bf7\u6c42\u5931\u8d25\uff1a" + shortError(e.getMessage());
                               if (streamingIdx >= 0) updateAiMessage(streamingIdx, "assistant", fail);
                               else appendAiMessage("assistant", fail);
@@ -2418,6 +2486,78 @@ jobs:
                   aiSendButton.setEnabled(!aiSending);
                   aiSendButton.setText(aiSending ? "\u53d1\u9001\u4e2d..." : "\u53d1\u9001");
                   aiSendButton.setAlpha(aiSending ? 0.55f : 1f);
+              }
+          
+              private void startAiTypewriter(int index) {
+                  aiTypingMessageIndex = index;
+                  aiTypingTargetText = "";
+                  aiTypingDisplayText = "";
+                  aiTypingFinalText = "";
+                  aiTypingFinished = false;
+                  aiTypingActive = index >= 0;
+                  aiTypingDoneAction = null;
+                  handler.removeCallbacks(aiTypingTicker);
+                  if (aiTypingActive) handler.postDelayed(aiTypingTicker, 120);
+              }
+          
+              private void pushAiTypingTarget(String fullText) {
+                  if (!aiTypingActive || fullText == null) return;
+                  if (fullText.length() >= aiTypingTargetText.length()) aiTypingTargetText = fullText;
+              }
+          
+              private void finishAiTypewriter(String finalText, Runnable done) {
+                  aiTypingFinalText = finalText == null ? "" : finalText;
+                  aiTypingTargetText = aiTypingFinalText;
+                  aiTypingFinished = true;
+                  aiTypingDoneAction = done;
+                  if (!aiTypingActive && aiTypingMessageIndex >= 0) {
+                      aiTypingActive = true;
+                      handler.post(aiTypingTicker);
+                  }
+              }
+          
+              private void stopAiTypewriter() {
+                  handler.removeCallbacks(aiTypingTicker);
+                  aiTypingActive = false;
+                  aiTypingFinished = false;
+                  aiTypingTargetText = "";
+                  aiTypingDisplayText = "";
+                  aiTypingFinalText = "";
+                  aiTypingMessageIndex = -1;
+                  aiTypingDoneAction = null;
+              }
+          
+              private void runAiTypingTick() {
+                  if (!aiTypingActive || aiTypingMessageIndex < 0) return;
+                  String target = aiTypingTargetText == null ? "" : aiTypingTargetText;
+                  if (target.isEmpty()) {
+                      handler.postDelayed(aiTypingTicker, 100);
+                      return;
+                  }
+                  if (aiTypingDisplayText.length() < target.length()) {
+                      int remain = target.length() - aiTypingDisplayText.length();
+                      int step = remain > 28 ? 3 : (remain > 10 ? 2 : 1);
+                      int nextLen = Math.min(target.length(), aiTypingDisplayText.length() + step);
+                      aiTypingDisplayText = target.substring(0, nextLen);
+                      updateAiMessage(aiTypingMessageIndex, "assistant", aiTypingDisplayText);
+                      long delay = 36;
+                      if (aiTypingDisplayText.endsWith("\n")) delay = 80;
+                      else if (aiTypingDisplayText.endsWith("。") || aiTypingDisplayText.endsWith("！") || aiTypingDisplayText.endsWith("？") || aiTypingDisplayText.endsWith(".") || aiTypingDisplayText.endsWith("!") || aiTypingDisplayText.endsWith("?")) delay = 105;
+                      else if (aiTypingDisplayText.endsWith("，") || aiTypingDisplayText.endsWith("、") || aiTypingDisplayText.endsWith(",") || aiTypingDisplayText.endsWith(";") || aiTypingDisplayText.endsWith("；")) delay = 65;
+                      handler.postDelayed(aiTypingTicker, delay);
+                      return;
+                  }
+                  if (aiTypingFinished) {
+                      if (!aiTypingFinalText.isEmpty() && !aiTypingFinalText.equals(aiTypingDisplayText)) {
+                          aiTypingDisplayText = aiTypingFinalText;
+                          updateAiMessage(aiTypingMessageIndex, "assistant", aiTypingDisplayText);
+                      }
+                      Runnable done = aiTypingDoneAction;
+                      stopAiTypewriter();
+                      if (done != null) done.run();
+                  } else {
+                      handler.postDelayed(aiTypingTicker, 80);
+                  }
               }
           
               private String buildAiRequestBody() throws Exception {
