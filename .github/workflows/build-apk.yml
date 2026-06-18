@@ -625,6 +625,7 @@ jobs:
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Handler;
+          import android.os.PowerManager;
           import android.os.SystemClock;
           import android.os.Vibrator;
           import android.provider.Settings;
@@ -754,7 +755,7 @@ jobs:
                   if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
                   String pkg = getPackageName();
                   try {
-                      if (!getSystemService(Context.POWER_SERVICE).isIgnoringBatteryOptimizations(pkg)) {
+                      if (!((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(pkg)) {
                           Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                           i.setData(Uri.parse("package:" + pkg));
                           startActivityForResult(i, REQ_BATTERY);
@@ -1261,7 +1262,7 @@ jobs:
           
                   String pkg = getPackageName();
                   try {
-                      if (!getSystemService(Context.POWER_SERVICE).isIgnoringBatteryOptimizations(pkg)) {
+                      if (!((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(pkg)) {
                           sb.append("\n\uff01\u672a\u5ffd\u7565\u7535\u6c60\u4f18\u5316\uff0c\u540e\u53f0\u53ef\u80fd\u88ab\u6740");
                       }
                   } catch (Exception ignored) {}
