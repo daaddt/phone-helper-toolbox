@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 37
-                  versionName "1.9.3"
+                  versionCode 38
+                  versionName "1.9.4"
               }
           
               compileOptions {
@@ -1033,7 +1033,7 @@ jobs:
                   LinearLayout actions = row();
                   Button importFile = button("\u4ece\u6587\u4ef6\u5bfc\u5165");
                   Button generate = button("\u751f\u6210\u5206\u6bb5");
-                  Button clear = button("\u6e05\u7a7d");
+                  Button clear = button("\u6e05\u7a7a");
                   actions.addView(importFile, weight()); actions.addView(generate, weight()); actions.addView(clear, weight());
                   splitPage.addView(actions);
                   splitResultList = new LinearLayout(this);
@@ -1918,7 +1918,7 @@ jobs:
                       aiMessages = new JSONArray();
                       saveAiMessages();
                       renderAiMessages();
-                      showStatus("AI \u5bf9\u8bdd\u5df2\u6e05\u7a7d");
+                      showStatus("AI \u5bf9\u8bdd\u5df2\u6e05\u7a7a");
                   });
                   renderAiMessages();
               }
@@ -2726,7 +2726,7 @@ jobs:
                       try {
                           JSONObject msg = aiMessages.getJSONObject(i);
                           boolean streaming = aiSending && i == streamingAssistantIndex && "assistant".equals(msg.optString("role"));
-                          aiMessageList.addView(aiBubble(msg.optString("role"), msg.optString("content"), streaming));
+                          aiMessageList.addView(aiBubble(i, msg.optString("role"), msg.optString("content"), streaming));
                       } catch (Exception ignored) {}
                   }
                   if ("ai".equals(currentPage) && aiMessageScroll != null) {
@@ -2746,7 +2746,7 @@ jobs:
                   });
               }
           
-              private View aiBubble(String role, String content, boolean streaming) {
+              private View aiBubble(int index, String role, String content, boolean streaming) {
                   boolean user = "user".equals(role);
                   LinearLayout wrap = new LinearLayout(this); wrap.setOrientation(LinearLayout.VERTICAL);
                   TextView tv = text((user ? "\u4f60\uff1a\n" : "\u52a9\u624b\uff1a\n") + content, 15, Color.WHITE);
@@ -2755,13 +2755,76 @@ jobs:
                   bg.setCornerRadius(20); tv.setBackground(bg); tv.setPadding(18, 14, 18, 14);
                   wrap.addView(tv);
                   if (!streaming) {
-                      Button copy = button(user ? "\u590d\u5236\u6211\u7684\u6d88\u606f" : "\u590d\u5236 AI \u56de\u590d");
-                      copy.setOnClickListener(v -> copyText(user ? "\u6211\u7684\u6d88\u606f" : "AI \u56de\u590d", content));
-                      wrap.addView(copy);
+                      View.OnLongClickListener longClick = v -> { showAiMessageActions(index, role, content); return true; };
+                      wrap.setOnLongClickListener(longClick);
+                      tv.setOnLongClickListener(longClick);
                   }
                   LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                   lp.setMargins(0, 8, 0, 8); wrap.setLayoutParams(lp);
                   return wrap;
+              }
+          
+              private void showAiMessageActions(int index, String role, String content) {
+                  boolean user = "user".equals(role);
+                  String[] items = user
+                      ? new String[]{"复制", "选取文字", "修改"}
+                      : new String[]{"复制", "选取文字", "重新回复"};
+                  new android.app.AlertDialog.Builder(this)
+                      .setTitle(user ? "我的消息" : "AI 回复")
+                      .setItems(items, (d, which) -> {
+                          if (which == 0) copyText(user ? "我的消息" : "AI 回复", content);
+                          else if (which == 1) showSelectableAiText(user ? "我的消息" : "AI 回复", content);
+                          else if (user) editAiUserMessage(index, content);
+                          else retryAiResponse(index);
+                      })
+                      .setNegativeButton("取消", null)
+                      .show();
+              }
+          
+              private void showSelectableAiText(String title, String content) {
+                  TextView tv = new TextView(this);
+                  tv.setText(content == null ? "" : content);
+                  tv.setTextSize(16);
+                  tv.setTextColor(Color.WHITE);
+                  tv.setTextIsSelectable(true);
+                  tv.setPadding(28, 24, 28, 24);
+                  ScrollView scroll = new ScrollView(this);
+                  scroll.addView(tv);
+                  new android.app.AlertDialog.Builder(this)
+                      .setTitle(title + "（可长按选取）")
+                      .setView(scroll)
+                      .setPositiveButton("复制全部", (d, w) -> copyText(title, content))
+                      .setNegativeButton("关闭", null)
+                      .show();
+              }
+          
+              private void editAiUserMessage(int index, String content) {
+                  if (aiSending) { showStatus("AI 正在回复，稍后再修改"); return; }
+                  removeAiMessagesFrom(index);
+                  aiInput.setText(content == null ? "" : content);
+                  aiInput.setSelection(aiInput.getText().length());
+                  showStatus("已放回输入框，可修改后重新发送");
+                  renderAiMessages();
+              }
+          
+              private void retryAiResponse(int index) {
+                  if (aiSending) { showStatus("AI 正在回复，稍后再重新回复"); return; }
+                  if (index <= 0) { showStatus("没有可重新回复的上文"); return; }
+                  removeAiMessagesFrom(index);
+                  showStatus("正在重新生成 AI 回复...");
+                  renderAiMessages();
+                  callAi(false);
+              }
+          
+              private void removeAiMessagesFrom(int index) {
+                  try {
+                      JSONArray next = new JSONArray();
+                      for (int i = 0; i < aiMessages.length(); i++) {
+                          if (i < index) next.put(aiMessages.getJSONObject(i));
+                      }
+                      aiMessages = next;
+                      saveAiMessages();
+                  } catch (Exception ignored) {}
               }
           
               private void saveAiSettings() {
