@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 36
-                  versionName "1.9.2"
+                  versionCode 37
+                  versionName "1.9.3"
               }
           
               compileOptions {
@@ -804,6 +804,9 @@ jobs:
               private boolean aiTypingFinished = false;
               private String aiTypingFinalText = "";
               private Runnable aiTypingDoneAction = null;
+              private boolean aiRenderScheduled = false;
+              private long aiLastRenderAt = 0;
+              private long aiLastSavedAt = 0;
               private int rootBaseBottomPadding = 28;
               private int aiBaseBottomPadding = 20;
               private String currentPage = "home";
@@ -2449,7 +2452,7 @@ jobs:
                   showStatus(testMode ? "\u6b63\u5728\u6d4b\u8bd5 AI \u8fde\u63a5..." : "AI \u6b63\u5728\u601d\u8003...");
                   final String requestBody;
                   try { requestBody = buildAiRequestBody(); } catch (Exception e) {
-                      showStatus("AI \u8bbe\u7f6e\u6709\u95ee\u9898\uff1a" + shortError(e.getMessage()));
+                      showStatus("AI 设置需要检查：" + shortError(e.getMessage()));
                       aiSending = false; updateAiSendingUi(); return;
                   }
                   final int streamingIdx = appendAiMessage("assistant", "\u6b63\u5728\u601d\u8003...");
@@ -2462,19 +2465,19 @@ jobs:
                           }));
                           runOnUiThread(() -> {
                               boolean hasReply = reply != null && !reply.trim().isEmpty();
-                              String finalText = hasReply ? reply : "AI \u56de\u590d\u5f02\u5e38\uff1a\u6a21\u578b\u8fd4\u56de\u4e86\u7a7a\u5185\u5bb9\u3002\u53ef\u80fd\u539f\u56e0\uff1a\u989d\u5ea6\u4e0d\u8db3\u3001\u6a21\u578b\u9650\u6d41\u6216\u7f51\u7edc\u5f02\u5e38\u3002\u5efa\u8bae\u68c0\u67e5 API \u8bbe\u7f6e\u6216\u7a0d\u540e\u91cd\u8bd5\u3002";
+                              String finalText = hasReply ? reply : buildAiEmptyReplyDiagnosis("模型返回了空内容。");
                               finishAiTypewriter(finalText, () -> {
-                                  showStatus(hasReply ? "AI \u56de\u590d\u5b8c\u6210" : "AI \u56de\u590d\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5 API \u72b6\u6001");
-                                  aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi(); renderAiMessages();
+                                  showStatus(hasReply ? "AI 回复完成" : "AI 没有返回有效内容，已给出诊断建议");
+                                  aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi(); saveAiMessages(); renderAiMessages();
                               });
                           });
                       } catch (Exception e) {
                           runOnUiThread(() -> {
                               stopAiTypewriter();
-                              String fail = "\u8bf7\u6c42\u5931\u8d25\uff1a" + shortError(e.getMessage());
+                              String fail = diagnoseAiException(e);
                               if (streamingIdx >= 0) updateAiMessage(streamingIdx, "assistant", fail);
                               else appendAiMessage("assistant", fail);
-                              showStatus("AI \u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5 API \u8bbe\u7f6e");
+                              showStatus("AI 回复异常，已生成稳定诊断提示");
                               aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi();
                           });
                       }
@@ -2497,7 +2500,7 @@ jobs:
                   aiTypingActive = index >= 0;
                   aiTypingDoneAction = null;
                   handler.removeCallbacks(aiTypingTicker);
-                  if (aiTypingActive) handler.postDelayed(aiTypingTicker, 120);
+                  if (aiTypingActive) handler.postDelayed(aiTypingTicker, 260);
               }
           
               private void pushAiTypingTarget(String fullText) {
@@ -2531,19 +2534,17 @@ jobs:
                   if (!aiTypingActive || aiTypingMessageIndex < 0) return;
                   String target = aiTypingTargetText == null ? "" : aiTypingTargetText;
                   if (target.isEmpty()) {
-                      handler.postDelayed(aiTypingTicker, 100);
+                      handler.postDelayed(aiTypingTicker, 180);
                       return;
                   }
                   if (aiTypingDisplayText.length() < target.length()) {
-                      int remain = target.length() - aiTypingDisplayText.length();
-                      int step = remain > 28 ? 3 : (remain > 10 ? 2 : 1);
-                      int nextLen = Math.min(target.length(), aiTypingDisplayText.length() + step);
+                      int nextLen = Math.min(target.length(), aiTypingDisplayText.length() + 1);
                       aiTypingDisplayText = target.substring(0, nextLen);
                       updateAiMessage(aiTypingMessageIndex, "assistant", aiTypingDisplayText);
-                      long delay = 36;
-                      if (aiTypingDisplayText.endsWith("\n")) delay = 80;
-                      else if (aiTypingDisplayText.endsWith("。") || aiTypingDisplayText.endsWith("！") || aiTypingDisplayText.endsWith("？") || aiTypingDisplayText.endsWith(".") || aiTypingDisplayText.endsWith("!") || aiTypingDisplayText.endsWith("?")) delay = 105;
-                      else if (aiTypingDisplayText.endsWith("，") || aiTypingDisplayText.endsWith("、") || aiTypingDisplayText.endsWith(",") || aiTypingDisplayText.endsWith(";") || aiTypingDisplayText.endsWith("；")) delay = 65;
+                      long delay = 105;
+                      if (aiTypingDisplayText.endsWith("\n")) delay = 220;
+                      else if (aiTypingDisplayText.endsWith("。") || aiTypingDisplayText.endsWith("！") || aiTypingDisplayText.endsWith("？") || aiTypingDisplayText.endsWith(".") || aiTypingDisplayText.endsWith("!") || aiTypingDisplayText.endsWith("?")) delay = 320;
+                      else if (aiTypingDisplayText.endsWith("，") || aiTypingDisplayText.endsWith("、") || aiTypingDisplayText.endsWith(",") || aiTypingDisplayText.endsWith(";") || aiTypingDisplayText.endsWith("；")) delay = 190;
                       handler.postDelayed(aiTypingTicker, delay);
                       return;
                   }
@@ -2556,7 +2557,7 @@ jobs:
                       stopAiTypewriter();
                       if (done != null) done.run();
                   } else {
-                      handler.postDelayed(aiTypingTicker, 80);
+                      handler.postDelayed(aiTypingTicker, 140);
                   }
               }
           
@@ -2587,43 +2588,97 @@ jobs:
               private String requestAiCompletionStream(String requestBody, AiStreamCallback callback) throws Exception {
                   String apiUrl = pref.getString("aiApiUrl", "").trim();
                   String apiKey = pref.getString("aiApiKey", "").trim();
-                  HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
-                  conn.setRequestMethod("POST");
-                  conn.setConnectTimeout(30000); conn.setReadTimeout(120000);
-                  conn.setDoOutput(true);
-                  conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                  conn.setRequestProperty("Accept", "text/event-stream");
-                  conn.setRequestProperty("Authorization", "Bearer " + apiKey);
-                  try (OutputStream os = conn.getOutputStream()) { os.write(requestBody.getBytes(StandardCharsets.UTF_8)); }
-                  int code = conn.getResponseCode();
-                  InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
-                  if (code < 200 || code >= 300) { String response = readAll(stream); throw new Exception("HTTP " + code + "\uff1a" + response); }
-                  StringBuilder full = new StringBuilder();
-                  int emptyCount = 0, validCount = 0; long lastUi = 0;
-                  BufferedReader br = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
-                  String line;
-                  while ((line = br.readLine()) != null) {
-                      line = line.trim();
-                      if (line.isEmpty()) continue;
-                      if (!line.startsWith("data:")) continue;
-                      String data = line.substring(5).trim();
-                      if ("[DONE]".equals(data)) break;
-                      try {
-                          JSONObject json = new JSONObject(data);
-                          JSONArray choices = json.optJSONArray("choices");
-                          if (choices == null || choices.length() == 0) { emptyCount++; continue; }
-                          JSONObject delta = choices.getJSONObject(0).optJSONObject("delta");
-                          String piece = delta != null ? delta.optString("content", "") : "";
-                          if (!piece.isEmpty()) { full.append(piece); validCount++; long now = SystemClock.elapsedRealtime(); if (now - lastUi > 120) { callback.onDelta(full.toString()); lastUi = now; } }
-                      } catch (Exception ignored) {}
+                  HttpURLConnection conn = null;
+                  try {
+                      conn = (HttpURLConnection) new URL(apiUrl).openConnection();
+                      conn.setRequestMethod("POST");
+                      conn.setConnectTimeout(30000); conn.setReadTimeout(120000);
+                      conn.setDoOutput(true);
+                      conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                      conn.setRequestProperty("Accept", "text/event-stream");
+                      conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+                      try (OutputStream os = conn.getOutputStream()) { os.write(requestBody.getBytes(StandardCharsets.UTF_8)); }
+                      int code = conn.getResponseCode();
+                      InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
+                      if (code < 200 || code >= 300) {
+                          String response = readAll(stream);
+                          throw new Exception("HTTP_" + code + "\n" + limitText(response, 700));
+                      }
+                      StringBuilder full = new StringBuilder();
+                      int emptyCount = 0, validCount = 0, malformedCount = 0; long lastUi = 0;
+                      String finishReason = "";
+                      BufferedReader br = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+                      String line;
+                      while ((line = br.readLine()) != null) {
+                          line = line.trim();
+                          if (line.isEmpty()) continue;
+                          if (!line.startsWith("data:")) continue;
+                          String data = line.substring(5).trim();
+                          if ("[DONE]".equals(data)) break;
+                          try {
+                              JSONObject json = new JSONObject(data);
+                              JSONArray choices = json.optJSONArray("choices");
+                              if (choices == null || choices.length() == 0) { emptyCount++; continue; }
+                              JSONObject choice = choices.getJSONObject(0);
+                              finishReason = choice.optString("finish_reason", finishReason);
+                              JSONObject delta = choice.optJSONObject("delta");
+                              String piece = delta != null ? delta.optString("content", "") : "";
+                              if (!piece.isEmpty()) {
+                                  full.append(piece); validCount++;
+                                  long now = SystemClock.elapsedRealtime();
+                                  if (now - lastUi > 260) { callback.onDelta(full.toString()); lastUi = now; }
+                              } else {
+                                  emptyCount++;
+                              }
+                          } catch (Exception parseError) { malformedCount++; }
+                      }
+                      String result = full.toString();
+                      if (!result.trim().isEmpty()) { callback.onDelta(result); return result; }
+                      throw new Exception("EMPTY_STREAM empty=" + emptyCount + " valid=" + validCount + " malformed=" + malformedCount + " finish=" + finishReason);
+                  } finally {
+                      try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
                   }
-                  String result = full.toString();
-                  if (!result.trim().isEmpty()) { callback.onDelta(result); return result; }
-                  if (emptyCount > 0 && validCount == 0) throw new Exception("\u6a21\u578b\u8fd4\u56de\u4e86\u7a7a\u5185\u5bb9\u6d41\uff08\u5171 " + emptyCount + " \u4e2a\u7a7a chunk\uff09\u3002\u53ef\u80fd\u539f\u56e0\uff1a\u989d\u5ea6\u4e0d\u8db3\u3001\u6a21\u578b\u9650\u6d41\u6216\u670d\u52a1\u5f02\u5e38\u3002");
-                  throw new Exception("\u6ca1\u6709\u6536\u5230 AI \u56de\u590d\u5185\u5bb9");
               }
           
               private interface AiStreamCallback { void onDelta(String fullText); }
+          
+              private String diagnoseAiException(Exception e) {
+                  String raw = e == null || e.getMessage() == null ? "" : e.getMessage();
+                  String lower = raw.toLowerCase(Locale.ROOT);
+                  if (raw.startsWith("HTTP_401") || raw.startsWith("HTTP_403")) {
+                      return "AI 回复异常：接口鉴权没有通过。\n\n建议检查：\n1. API Key 是否填写正确、是否过期。\n2. API 地址和模型是否属于同一个服务商。\n3. 当前 Key 是否有调用该模型的权限。\n\n原始信息：\n" + limitText(raw, 500);
+                  }
+                  if (raw.startsWith("HTTP_429")) {
+                      return "AI 回复异常：接口限流或额度不足。\n\n建议稍后再试，或检查账号额度、免费模型限额、并发限制。\n\n原始信息：\n" + limitText(raw, 500);
+                  }
+                  if (raw.startsWith("HTTP_400")) {
+                      return "AI 回复异常：请求参数可能不被当前模型接受。\n\n建议检查模型名称、API 地址，以及系统提示词或上下文是否过长。\n\n原始信息：\n" + limitText(raw, 500);
+                  }
+                  if (raw.startsWith("HTTP_5")) {
+                      return "AI 回复异常：服务端暂时不可用或网关异常。\n\n建议稍后重试，或切换到更稳定的模型/接口。\n\n原始信息：\n" + limitText(raw, 500);
+                  }
+                  if (raw.startsWith("EMPTY_STREAM")) {
+                      return buildAiEmptyReplyDiagnosis(raw);
+                  }
+                  if (lower.contains("timeout") || lower.contains("timed out")) {
+                      return "AI 回复异常：连接或读取超时。\n\n建议检查网络状态，或稍后重试；如果模型响应很慢，可以换一个响应更快的模型。";
+                  }
+                  if (lower.contains("unknownhost") || lower.contains("failed to connect") || lower.contains("connection refused")) {
+                      return "AI 回复异常：无法连接到接口地址。\n\n建议检查 API 地址是否正确、网络是否可用，以及接口服务是否在线。";
+                  }
+                  return "AI 回复异常：请求未能稳定完成。\n\n建议检查 API Key、API 地址、模型名称、网络状态后重试。\n\n原始信息：\n" + limitText(raw, 500);
+              }
+          
+              private String buildAiEmptyReplyDiagnosis(String detail) {
+                  return "AI 回复异常：模型没有返回可显示的正文。\n\n可能原因：\n1. 当前模型限流、额度不足，或服务端临时异常。\n2. 模型返回了空流，只有状态信息，没有正文内容。\n3. API 地址、模型名称与服务商不匹配。\n\n建议：\n先点“测试连接”，再检查 API Key、模型名和账号额度；如果仍然异常，可以换一个稳定模型后重试。\n\n诊断信息：\n" + limitText(detail, 500);
+              }
+          
+              private String limitText(String value, int max) {
+                  if (value == null) return "";
+                  String v = value.trim();
+                  if (v.length() <= max) return v;
+                  return v.substring(0, max) + "...";
+              }
           
               private String readAll(InputStream stream) throws Exception {
                   BufferedReader br = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
@@ -2638,7 +2693,30 @@ jobs:
               }
           
               private void updateAiMessage(int index, String role, String content) {
-                  try { if (index < 0 || index >= aiMessages.length()) return; JSONObject obj = new JSONObject(); obj.put("role", role); obj.put("content", content); aiMessages.put(index, obj); saveAiMessages(); renderAiMessages(); } catch (Exception ignored) {}
+                  try {
+                      if (index < 0 || index >= aiMessages.length()) return;
+                      JSONObject obj = new JSONObject(); obj.put("role", role); obj.put("content", content); aiMessages.put(index, obj);
+                      boolean typing = aiTypingActive && index == aiTypingMessageIndex && "assistant".equals(role);
+                      long now = SystemClock.elapsedRealtime();
+                      if (!typing || now - aiLastSavedAt > 900 || aiTypingFinished) {
+                          saveAiMessages();
+                          aiLastSavedAt = now;
+                      }
+                      scheduleAiRender(typing);
+                  } catch (Exception ignored) {}
+              }
+          
+              private void scheduleAiRender(boolean relaxed) {
+                  if (!relaxed) { renderAiMessages(); return; }
+                  long now = SystemClock.elapsedRealtime();
+                  long wait = Math.max(0, 90 - (now - aiLastRenderAt));
+                  if (aiRenderScheduled) return;
+                  aiRenderScheduled = true;
+                  handler.postDelayed(() -> {
+                      aiRenderScheduled = false;
+                      aiLastRenderAt = SystemClock.elapsedRealtime();
+                      renderAiMessages();
+                  }, wait);
               }
           
               private void renderAiMessages() {
@@ -2651,7 +2729,7 @@ jobs:
                           aiMessageList.addView(aiBubble(msg.optString("role"), msg.optString("content"), streaming));
                       } catch (Exception ignored) {}
                   }
-                  if (aiMessageScroll != null) {
+                  if ("ai".equals(currentPage) && aiMessageScroll != null) {
                       aiMessageScroll.post(() -> { aiMessageScroll.smoothScrollTo(0, aiMessageList.getBottom()); reapplyAiKeyboardOffset(); });
                   }
               }
