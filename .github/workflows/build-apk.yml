@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 32
-                  versionName "1.8.8"
+                  versionCode 33
+                  versionName "1.8.9"
               }
           
               compileOptions {
@@ -1045,9 +1045,21 @@ jobs:
                   alarmPage.addView(sectionTitle("\u95f9\u949f"));
                   alarmPage.addView(infoCard("\u95f9\u949f\u4e0d\u4f1a\u5728\u8fdb\u5165 App \u65f6\u81ea\u52a8\u5f39\u51fa\u6743\u9650\u9875\u3002\u9700\u8981\u65f6\u70b9\u51fb\u201c\u6743\u9650\u8bbe\u7f6e\u201d\uff0c\u518d\u5f00\u542f\u901a\u77e5\u3001\u7cbe\u786e\u95f9\u949f\u548c\u7535\u6c60\u4f18\u5316\u76f8\u5173\u6743\u9650\u3002"));
           
+                  // \u9876\u90e8\u4e24\u4e2a\u4e3b\u64cd\u4f5c\u6309\u94ae\u7b49\u5bbd\u5e76\u6392\uff0c\u66f4\u6574\u9f50
+                  LinearLayout topRow = new LinearLayout(this);
+                  topRow.setOrientation(LinearLayout.HORIZONTAL);
+                  topRow.setPadding(0, 6, 0, 6);
                   Button permissionBtn = button("\u6743\u9650\u8bbe\u7f6e");
-                  alarmPage.addView(permissionBtn);
+                  Button addBtn = button("\u6dfb\u52a0\u95f9\u949f");
                   permissionBtn.setOnClickListener(v -> requestAlarmPermissions());
+                  addBtn.setOnClickListener(v -> showAddAlarmDialog(-1));
+                  LinearLayout.LayoutParams lpL = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  lpL.setMargins(0, 0, 8, 0);
+                  LinearLayout.LayoutParams lpR = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  lpR.setMargins(8, 0, 0, 0);
+                  topRow.addView(permissionBtn, lpL);
+                  topRow.addView(addBtn, lpR);
+                  alarmPage.addView(topRow);
           
                   alarmStatusText = text("", 15, Color.rgb(125, 211, 252));
                   alarmStatusText.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -1057,15 +1069,26 @@ jobs:
                   alarmList.setOrientation(LinearLayout.VERTICAL);
                   alarmPage.addView(alarmList);
           
-                  Button addBtn = button("\u6dfb\u52a0\u95f9\u949f");
-                  alarmPage.addView(addBtn);
-                  addBtn.setOnClickListener(v -> showAddAlarmDialog());
                   updateAlarmDisplay();
               }
           
-              private void showAddAlarmDialog() {
+              private void showAddAlarmDialog(int editIndex) {
+                  // \u9884\u52a0\u8f7d\uff1a\u7f16\u8f91\u6a21\u5f0f\u4e0b\u586b\u5165\u5df2\u6709\u6570\u503c
+                  int initHour = 7, initMinute = 0;
+                  String initLabel = "";
+                  boolean initRepeat = false;
+                  if (editIndex >= 0) {
+                      try {
+                          JSONObject a = loadArray("systemAlarms").getJSONObject(editIndex);
+                          initHour = a.optInt("hour", 7);
+                          initMinute = a.optInt("minute", 0);
+                          initLabel = a.optString("label", "");
+                          initRepeat = a.optBoolean("repeatDaily", false);
+                      } catch (Exception ignored) {}
+                  }
+          
                   android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-                  b.setTitle("\u6dfb\u52a0\u95f9\u949f");
+                  b.setTitle(editIndex >= 0 ? "\u7f16\u8f91\u95f9\u949f" : "\u6dfb\u52a0\u95f9\u949f");
                   LinearLayout lay = new LinearLayout(this);
                   lay.setOrientation(LinearLayout.VERTICAL);
                   lay.setPadding(32, 16, 32, 16);
@@ -1081,6 +1104,7 @@ jobs:
                   hbg.setCornerRadius(18);
                   hInput.setBackground(hbg);
                   hInput.setPadding(16,12,16,12);
+                  if (editIndex >= 0) hInput.setText(String.valueOf(initHour));
           
                   EditText mInput = new EditText(this);
                   mInput.setHint("\u5206\u949f 0-59");
@@ -1093,6 +1117,7 @@ jobs:
                   mbg.setCornerRadius(18);
                   mInput.setBackground(mbg);
                   mInput.setPadding(16,12,16,12);
+                  if (editIndex >= 0) mInput.setText(String.valueOf(initMinute));
           
                   EditText lInput = new EditText(this);
                   lInput.setHint("\u63d0\u9192\u5185\u5bb9");
@@ -1104,10 +1129,12 @@ jobs:
                   lbg.setCornerRadius(18);
                   lInput.setBackground(lbg);
                   lInput.setPadding(16,12,16,12);
+                  if (editIndex >= 0) lInput.setText(initLabel);
           
                   CheckBox repeatChk = new CheckBox(this);
                   repeatChk.setText("\u6bcf\u5929\u91cd\u590d");
                   repeatChk.setTextColor(Color.WHITE);
+                  repeatChk.setChecked(initRepeat);
           
                   LinearLayout hm = new LinearLayout(this);
                   hm.setOrientation(LinearLayout.HORIZONTAL);
@@ -1117,16 +1144,48 @@ jobs:
                   lay.addView(lInput);
                   lay.addView(repeatChk);
                   b.setView(lay);
-                  b.setPositiveButton("\u786e\u5b9a", (d, w) -> {
+                  final int finalEditIndex = editIndex;
+                  b.setPositiveButton(editIndex >= 0 ? "\u4fdd\u5b58" : "\u786e\u5b9a", (d, w) -> {
                       int hour = Math.max(0, Math.min(23, parseInt(hInput.getText().toString(), 7)));
                       int minute = Math.max(0, Math.min(59, parseInt(mInput.getText().toString(), 0)));
                       String label = lInput.getText().toString().trim();
                       if (label.isEmpty()) label = "\u95f9\u949f";
                       boolean repeat = repeatChk.isChecked();
-                      addAlarm(hour, minute, label, repeat, "");
+                      if (finalEditIndex >= 0) {
+                          updateAlarm(finalEditIndex, hour, minute, label, repeat);
+                      } else {
+                          addAlarm(hour, minute, label, repeat, "");
+                      }
                   });
                   b.setNegativeButton("\u53d6\u6d88", null);
                   b.show();
+              }
+          
+              // \u7f16\u8f91\u5df2\u6709\u95f9\u949f\uff1a\u4fdd\u7559 id / toneUri / enabled\uff0c\u91cd\u65b0\u8c03\u5ea6
+              private void updateAlarm(int index, int hour, int minute, String label, boolean repeat) {
+                  try {
+                      JSONArray alarms = loadArray("systemAlarms");
+                      JSONObject a = alarms.getJSONObject(index);
+                      // \u5148\u53d6\u6d88\u539f\u8c03\u5ea6
+                      try {
+                          AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                          Intent intent = new Intent(this, AlarmReceiver.class);
+                          intent.setAction("com.trae.phonehelper.ALARM_" + a.optInt("id"));
+                          PendingIntent pi = PendingIntent.getBroadcast(this, a.optInt("id", 0), intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                          if (am != null) am.cancel(pi);
+                      } catch (Exception ignored) {}
+                      a.put("hour", hour);
+                      a.put("minute", minute);
+                      a.put("label", label);
+                      a.put("repeatDaily", repeat);
+                      a.put("nextAt", nextAlarmTime(hour, minute));
+                      alarms.put(index, a);
+                      saveArray("systemAlarms", alarms);
+                      if (a.optBoolean("enabled", true)) AlarmReceiver.scheduleExactAlarm(this, a);
+                      renderAlarmList();
+                      updateAlarmDisplay();
+                      showStatus("\u95f9\u949f\u5df2\u66f4\u65b0\uff1a" + String.format(Locale.getDefault(), "%02d:%02d", hour, minute));
+                  } catch (Exception e) { showStatus("\u4fdd\u5b58\u5931\u8d25"); }
               }
           
               private void addAlarm(int hour, int minute, String label, boolean repeat, String toneUri) {
@@ -1169,12 +1228,14 @@ jobs:
                   boolean repeat = a.optBoolean("repeatDaily", false);
                   String tone = a.optString("toneUri", "");
           
-                  TextView time = text(String.format(Locale.getDefault(), "%02d:%02d", hour, minute) + (repeat ? " \u6bcf\u5929" : ""), 28, Color.WHITE);
+                  // \u9876\u90e8\uff1a\u65f6\u95f4 + \u53f3\u4fa7\u5f00\u5173\uff08\u5360\u6ee1\u5bbd\u5ea6\uff0c\u6574\u9f50\uff09
+                  LinearLayout topLine = new LinearLayout(this);
+                  topLine.setOrientation(LinearLayout.HORIZONTAL);
+                  topLine.setGravity(Gravity.CENTER_VERTICAL);
+                  TextView time = text(String.format(Locale.getDefault(), "%02d:%02d", hour, minute) + (repeat ? "  \u6bcf\u5929" : ""), 28, Color.WHITE);
                   time.setTypeface(Typeface.DEFAULT_BOLD);
-                  card.addView(time);
-                  card.addView(text(label + (tone.isEmpty() ? "\uff08\u7cfb\u7edf\u94c3\u58f0\uff09" : "\uff08\u81ea\u5b9a\u4e49\uff09"), 14, Color.LTGRAY));
+                  topLine.addView(time, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
           
-                  LinearLayout btns = row();
                   CheckBox sw = new CheckBox(this);
                   sw.setChecked(enabled);
                   sw.setOnCheckedChangeListener((btn, chk) -> {
@@ -1195,33 +1256,95 @@ jobs:
                           updateAlarmDisplay();
                       } catch (Exception ignored) {}
                   });
-                  btns.addView(sw);
+                  topLine.addView(sw);
+                  card.addView(topLine);
           
-                  Button del = button("\u5220\u9664");
-                  del.setOnClickListener(v -> {
-                      try {
-                          AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-                          Intent intent = new Intent(this, AlarmReceiver.class);
-                          intent.setAction("com.trae.phonehelper.ALARM_" + a.optInt("id"));
-                          PendingIntent pi = PendingIntent.getBroadcast(this, a.optInt("id", 0), intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                          if (am != null) am.cancel(pi);
-                          JSONArray alarms = loadArray("systemAlarms");
-                          JSONArray n = new JSONArray();
-                          for (int j = 0; j < alarms.length(); j++) { if (j != index) n.put(alarms.get(j)); }
-                          saveArray("systemAlarms", n);
-                          renderAlarmList();
-                          updateAlarmDisplay();
-                          showStatus("\u95f9\u949f\u5df2\u5220\u9664");
-                      } catch (Exception ignored) {}
-                  });
-                  btns.addView(del);
+                  // \u6807\u7b7e
+                  card.addView(text(label, 14, Color.LTGRAY));
+                  // \u771f\u5b9e\u94c3\u58f0\u540d\u79f0\uff08\u83b7\u53d6\u4e0d\u5230\u65f6\u9000\u56de\u63cf\u8ff0\uff09
+                  String toneName = tone.isEmpty() ? "\u7cfb\u7edf\u9ed8\u8ba4\u95f9\u94c3" : ringtoneTitleOf(tone);
+                  card.addView(text("\u94c3\u58f0\uff1a" + toneName, 13, Color.rgb(148, 163, 184)));
           
+                  // \u5e95\u90e8\u4e09\u4e2a\u7b49\u5bbd\u6309\u94ae\uff1a\u7f16\u8f91 / \u9009\u62e9\u94c3\u58f0 / \u5220\u9664
+                  LinearLayout btns = new LinearLayout(this);
+                  btns.setOrientation(LinearLayout.HORIZONTAL);
+                  btns.setPadding(0, 10, 0, 0);
+          
+                  Button edit = button("\u7f16\u8f91");
+                  edit.setOnClickListener(v -> showAddAlarmDialog(index));
                   Button ringBtn = button("\u9009\u62e9\u94c3\u58f0");
                   ringBtn.setOnClickListener(v -> showRingtoneCenter(index));
-                  btns.addView(ringBtn);
+                  Button del = button("\u5220\u9664");
+                  // \u201c\u5220\u9664\u201d\u6309\u94ae\u6362\u6210\u7ea2\u6a59\u8c03\uff0c\u4e0e\u5176\u4ed6\u6309\u94ae\u533a\u5206\u5f00
+                  GradientDrawable delBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.rgb(244, 63, 94), Color.rgb(249, 115, 22)});
+                  delBg.setCornerRadius(22);
+                  del.setBackground(delBg);
+                  del.setOnClickListener(v -> confirmDeleteAlarm(index, a));
+          
+                  LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  lp1.setMargins(0, 0, 6, 0);
+                  LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  lp2.setMargins(6, 0, 6, 0);
+                  LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  lp3.setMargins(6, 0, 0, 0);
+                  btns.addView(edit, lp1);
+                  btns.addView(ringBtn, lp2);
+                  btns.addView(del, lp3);
           
                   card.addView(btns);
                   return card;
+              }
+          
+              // \u5220\u9664\u4e8c\u6b21\u786e\u8ba4
+              private void confirmDeleteAlarm(int index, JSONObject a) {
+                  new android.app.AlertDialog.Builder(this)
+                      .setTitle("\u5220\u9664\u95f9\u949f")
+                      .setMessage("\u786e\u5b9a\u8981\u5220\u9664\u8fd9\u4e2a\u95f9\u949f\u5417\uff1f")
+                      .setPositiveButton("\u5220\u9664", (d, w) -> {
+                          try {
+                              AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                              Intent intent = new Intent(this, AlarmReceiver.class);
+                              intent.setAction("com.trae.phonehelper.ALARM_" + a.optInt("id"));
+                              PendingIntent pi = PendingIntent.getBroadcast(this, a.optInt("id", 0), intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                              if (am != null) am.cancel(pi);
+                              JSONArray alarms = loadArray("systemAlarms");
+                              JSONArray n = new JSONArray();
+                              for (int j = 0; j < alarms.length(); j++) { if (j != index) n.put(alarms.get(j)); }
+                              saveArray("systemAlarms", n);
+                              renderAlarmList();
+                              updateAlarmDisplay();
+                              showStatus("\u95f9\u949f\u5df2\u5220\u9664");
+                          } catch (Exception ignored) {}
+                      })
+                      .setNegativeButton("\u53d6\u6d88", null)
+                      .show();
+              }
+          
+              // \u8bfb\u53d6\u94c3\u58f0 URI \u5bf9\u5e94\u7684\u771f\u5b9e\u540d\u79f0
+              private String ringtoneTitleOf(String uriStr) {
+                  if (uriStr == null || uriStr.isEmpty()) return "\u7cfb\u7edf\u9ed8\u8ba4\u95f9\u94c3";
+                  try {
+                      Uri u = Uri.parse(uriStr);
+                      android.media.Ringtone r = RingtoneManager.getRingtone(this, u);
+                      if (r != null) {
+                          String title = r.getTitle(this);
+                          if (title != null && !title.isEmpty()) return title;
+                      }
+                      // \u672c\u5730\u97f3\u4e50 (content://...) \u4ece DocumentFile / ContentResolver \u8bfb\u53d6
+                      android.database.Cursor c = getContentResolver().query(u, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null);
+                      if (c != null) {
+                          try {
+                              if (c.moveToFirst()) {
+                                  int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                                  if (idx >= 0) {
+                                      String n = c.getString(idx);
+                                      if (n != null && !n.isEmpty()) return n;
+                                  }
+                              }
+                          } finally { c.close(); }
+                      }
+                  } catch (Exception ignored) {}
+                  return "\u81ea\u5b9a\u4e49\u94c3\u58f0";
               }
           
               private int currentEditingAlarmIndex = -1;
@@ -1253,48 +1376,47 @@ jobs:
                   } catch (Exception e) { showStatus("\u9009\u62e9\u672c\u5730\u97f3\u4e50\u5931\u8d25"); }
               }
           
-              // 仿系统主题市场 4 Tab 铃声选择器：闹铃热榜/真人闹钟/轻柔唤醒/趣味搞怪
+              // 真实系统铃声选择器：按闹铃/铃声/通知分 Tab，每条目显示系统真实名称并支持试听
+              private android.media.Ringtone previewRingtone;
               private void showRingtoneCenter(int index) {
                   currentEditingAlarmIndex = index;
-                  final String[] tabs = {"\u95f9\u94c3\u70ed\u699c", "\u771f\u4eba\u95f9\u949f", "\u8f7b\u67d4\u5524\u9192", "\u8da3\u5473\u641e\u602a"};
-                  final String[][] titles = {
-                      {"\u6e29\u67d4\u65e9\u6668", "\u54f2\u5b66\u9f13\u70b9", "\u660e\u4eae\u592a\u9633", "\u9c9c\u6f06\u68a6\u5883", "\u96e8\u540e\u7eff\u610f", "\u68a6\u91cc\u96f6\u70b9", "\u661f\u706b\u67d3\u5e8f", "\u6c34\u4e91\u95f4\u594f"},
-                      {"\u5988\u5988\u53eb\u4f60\u8d77\u5e8a", "\u5e08\u5085\u63d0\u9192\u4e0a\u8bfe", "\u5b66\u59d0\u5524\u4f60\u4e0a\u73ed", "\u70ed\u8840\u6559\u7ec3\u53eb\u96b6", "\u8001\u677f\u63d0\u9192\u5f00\u4f1a", "\u5973\u53cb\u8d77\u5e8a\u4ee4", "\u6210\u719f\u4e3b\u64ad\u62a5\u65f6", "\u52a8\u753b\u5c11\u5973\u8d77\u5e8a"},
-                      {"\u96f6\u51b7\u9a6c\u6843", "\u68a6\u4e2d\u94a2\u7434", "\u83ab\u68ee\u8c37\u98ce", "\u68b3\u68b3\u519c\u573a", "\u9633\u5149\u6cb9\u6f06", "\u68a6\u91cc\u603b\u6709", "\u660e\u4eae\u68a6\u4e2d", "\u8584\u8377\u8377\u9192"},
-                      {"\u5730\u7403Online\u63d0\u9192", "\u54c8\u57fa\u7c73\u7cfb\u5217", "\u86cb\u7cd5\u5e97\u4e70\u86cb\u7cd5", "\u4e30\u5b50\u4ee3\u7801\u62a5\u9519", "\u5403\u996d\u9197\u54e6\u7ed9", "\u8001\u677f\u8d77\u5e8a\u63d0\u9192", "\u4e0d\u8d77\u6765\u8001\u677f\u70d2\u4f60", "\u5feb\u8dd1\u4e0a\u73ed\u8981\u8fdf\u5230"}
-                  };
-                  final String[][] subs = {
-                      {"\u5c0f\u8273 | \u5524\u9192\u4e00\u5929\u7684\u7f8e\u597d", "\u6c64\u59c6 | \u51b7\u9759\u6709\u903b\u8f91", "\u8334\u5b50 | \u6e29\u6696\u4e0d\u523a\u8033", "\u9c7c\u9c7c | \u8f7b\u8f7b\u62c9\u4f60\u51fa\u88ab\u7a9d", "\u6797 | \u96e8\u58f0\u4e2d\u7684\u68a6\u5883", "\u6df1\u591c | \u9002\u5408\u591c\u73ed\u4eba\u5458", "\u68a6 | \u70b9\u4eae\u5929\u7a7a", "\u4e91 | \u52a8\u542c\u624b\u8c03"},
-                      {"\u5988\u5988 | \u5feb\u8d77\u5e8a\u54e6\u4ed4\u4ed4", "\u5e08\u5085 | \u8bfe\u8868\u4e0a\u73ed\u63d0\u9192", "\u5b66\u59d0 | \u8d70\u5566\u4e0a\u73ed\u522b\u8fdf\u5230", "\u6559\u7ec3 | \u4eca\u5929\u4e5f\u8981\u52aa\u529b", "\u8001\u677f | \u5f00\u4f1a\u63d0\u9192", "\u5973\u53cb | \u4e2a\u5b9d\u8d77\u5e8a\u5566", "\u4e3b\u64ad | \u73b0\u5728\u662f\u65e9\u95f4\u63a8\u9001", "\u4e8c\u6b21\u5143 | \u5524\u9192\u8d85\u53ef\u7231"},
-                      {"\u594f\u9e23 | 90 \u79d2\u6e10\u5f3a", "\u94a2\u7434 | \u4e91\u7aef\u8f7b\u54cd", "\u81ea\u7136 | \u9e1f\u9e23\u4f34\u594f", "\u68b3\u68b3 | \u519c\u573a\u65e9\u4f1a", "\u8001\u5e08 | \u9633\u5149\u4e0b\u7684\u6cb9\u6f06", "\u68a6 | \u63a8\u5230\u6700\u540e\u624d\u4f1a\u54cd", "\u68a6\u4e2d | \u8f7b\u67d4\u4f7f\u4f60\u4e0d\u70e6", "\u8584\u8377 | \u51c9\u51c9\u5524\u9192"},
-                      {"\u5c0f\u827e | \u8bf7\u52ff\u5728NPC\u8eab\u4e0a\u6d6a\u8d39\u592a\u591a", "\u5c0f\u827e | \u6240\u4ee5\u7231\u9519\u4e86\uff0c\u66fc\u6ce2\u54ea\u91cc\u8d77\u98de", "\u5c0f\u827e | \u9762\u5305\u5e97\u4e70\u9762\u5305", "\u4e30\u5b50 | TODO \u4e00\u9576\u53cc\u6210\u5bf9", "\u4eca\u4eca | \u62a4\u80c3\u4ece\u5403\u996d\u5f00\u59cb", "\u4e30\u4e30 | \u4e58\u4e58\u8d77\u5e8a\u5594\u6211\u4eec\u53bb\u8d5amon", "\u4e30\u4e30 | \u4e58\u4e58\u8d77\u5e8a\u4e0a\u8001\u677f\u4f1a\u9aa1", "\u5c0f\u827e | \u8d70\u5566\u8d70\u5566\u522b\u9b3a"}
-                  };
+                  final String[] tabs = {"\u95f9\u94c3", "\u94c3\u58f0", "\u901a\u77e5"};
+                  final int[] tabTypes = {RingtoneManager.TYPE_ALARM, RingtoneManager.TYPE_RINGTONE, RingtoneManager.TYPE_NOTIFICATION};
           
-                  // 取系统铃声列表，循环映射给每条目，保证“应用”后真有声音
-                  java.util.List<Uri> pool = new java.util.ArrayList<>();
-                  int[] poolTypes = {RingtoneManager.TYPE_ALARM, RingtoneManager.TYPE_RINGTONE, RingtoneManager.TYPE_NOTIFICATION};
-                  for (int t : poolTypes) {
+                  // \u5f53\u524d\u95f9\u949f\u5df2\u8bbe\u7f6e\u7684 toneUri\uff0c\u7528\u4e8e\u9ad8\u4eae
+                  String currentTone = "";
+                  try {
+                      currentTone = loadArray("systemAlarms").getJSONObject(index).optString("toneUri", "");
+                  } catch (Exception ignored) {}
+                  final String currentToneFinal = currentTone;
+          
+                  // \u6309 Tab \u9884\u52a0\u8f7d\u771f\u5b9e\u94c3\u58f0\u5217\u8868\uff08title + uri\uff09
+                  final java.util.List<java.util.List<String[]>> allLists = new java.util.ArrayList<>();
+                  for (int t : tabTypes) {
+                      java.util.List<String[]> list = new java.util.ArrayList<>();
                       try {
                           RingtoneManager rm = new RingtoneManager(this);
                           rm.setType(t);
                           android.database.Cursor c = rm.getCursor();
-                          for (int i = 0; i < c.getCount(); i++) {
-                              try { pool.add(rm.getRingtoneUri(i)); } catch (Exception ignored) {}
+                          int total = c.getCount();
+                          for (int i = 0; i < total; i++) {
+                              try {
+                                  String title = c.moveToPosition(i) ? c.getString(RingtoneManager.TITLE_COLUMN_INDEX) : "";
+                                  Uri uri = rm.getRingtoneUri(i);
+                                  if (uri != null) list.add(new String[]{title == null ? "\u672a\u547d\u540d" : title, uri.toString()});
+                              } catch (Exception ignored) {}
                           }
                       } catch (Exception ignored) {}
-                  }
-                  if (pool.isEmpty()) {
-                      pool.add(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM));
+                      allLists.add(list);
                   }
           
-                  // 构建对话框 UI
                   ScrollView scroll = new ScrollView(this);
                   LinearLayout root = new LinearLayout(this);
                   root.setOrientation(LinearLayout.VERTICAL);
                   root.setPadding(24, 16, 24, 24);
                   scroll.addView(root);
           
-                  // Tab 行
+                  // Tab \u884c
                   LinearLayout tabRow = new LinearLayout(this);
                   tabRow.setOrientation(LinearLayout.HORIZONTAL);
                   final TextView[] tabViews = new TextView[tabs.length];
@@ -1303,49 +1425,94 @@ jobs:
                   list.setPadding(0, 12, 0, 0);
           
                   final int[] currentTab = {0};
+                  // \u9009\u4e2d\u9884\u89c8 highlight\uff1a\u8bb0\u5f55\u5f53\u524d\u9009\u4e2d\u7684 uri\uff08\u9ed8\u8ba4\u4e3a\u95f9\u949f\u73b0\u6709\uff09
+                  final String[] selectedUri = {currentToneFinal};
+                  final java.util.List<View> rowViews = new java.util.ArrayList<>();
+                  final java.util.List<String> rowUris = new java.util.ArrayList<>();
+          
                   Runnable renderList = () -> {
                       list.removeAllViews();
-                      int t = currentTab[0];
-                      for (int i = 0; i < titles[t].length; i++) {
-                          final String title = titles[t][i];
-                          final String sub = subs[t][i];
-                          final Uri uri = pool.get((t * 31 + i) % pool.size());
+                      rowViews.clear();
+                      rowUris.clear();
+                      java.util.List<String[]> data = allLists.get(currentTab[0]);
+                      if (data.isEmpty()) {
+                          TextView empty = text("\u672c\u8bbe\u5907\u5728\u6b64\u5206\u7c7b\u4e0b\u6ca1\u6709\u53ef\u7528\u94c3\u58f0", 14, Color.rgb(148, 163, 184));
+                          empty.setGravity(Gravity.CENTER);
+                          list.addView(empty);
+                          return;
+                      }
+                      for (int i = 0; i < data.size(); i++) {
+                          final String title = data.get(i)[0];
+                          final String uriStr = data.get(i)[1];
                           LinearLayout row = new LinearLayout(this);
                           row.setOrientation(LinearLayout.HORIZONTAL);
-                          row.setPadding(8, 18, 8, 18);
+                          row.setGravity(Gravity.CENTER_VERTICAL);
+                          row.setPadding(14, 16, 14, 16);
                           GradientDrawable rbg = new GradientDrawable();
+                          boolean sel = uriStr.equals(selectedUri[0]);
                           rbg.setColor(Color.rgb(15, 23, 42));
-                          rbg.setStroke(1, Color.rgb(30, 41, 59));
+                          rbg.setStroke(sel ? 3 : 1, sel ? Color.rgb(16, 185, 129) : Color.rgb(30, 41, 59));
                           rbg.setCornerRadius(20);
                           row.setBackground(rbg);
                           LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                          rlp.setMargins(0, 8, 0, 8);
+                          rlp.setMargins(0, 6, 0, 6);
                           row.setLayoutParams(rlp);
           
-                          LinearLayout txtCol = new LinearLayout(this);
-                          txtCol.setOrientation(LinearLayout.VERTICAL);
                           TextView tt = new TextView(this);
                           tt.setText(title);
-                          tt.setTextSize(17);
+                          tt.setTextSize(15);
                           tt.setTextColor(Color.WHITE);
-                          tt.setTypeface(Typeface.DEFAULT_BOLD);
-                          TextView ts = new TextView(this);
-                          ts.setText(sub);
-                          ts.setTextSize(13);
-                          ts.setTextColor(Color.rgb(148, 163, 184));
-                          txtCol.addView(tt); txtCol.addView(ts);
-                          row.addView(txtCol, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                          tt.setSingleLine(true);
+                          tt.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                          row.addView(tt, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
           
+                          // \u8bd5\u542c\u6309\u94ae
+                          Button preview = new Button(this);
+                          preview.setText("\u8bd5\u542c");
+                          preview.setAllCaps(false);
+                          preview.setTextSize(13);
+                          preview.setTextColor(Color.WHITE);
+                          GradientDrawable pbg = new GradientDrawable();
+                          pbg.setColor(Color.rgb(30, 41, 59));
+                          pbg.setStroke(1, Color.rgb(71, 85, 105));
+                          pbg.setCornerRadius(20);
+                          preview.setBackground(pbg);
+                          preview.setMinWidth(0); preview.setMinimumWidth(0); preview.setPadding(20, 6, 20, 6);
+                          preview.setOnClickListener(v -> previewRingtoneAt(uriStr));
+                          LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                          plp.setMargins(8, 0, 8, 0);
+                          row.addView(preview, plp);
+          
+                          // \u5e94\u7528\u6309\u94ae
                           Button apply = new Button(this);
-                          apply.setText("\u5e94\u7528");
+                          apply.setText("\u9009\u4e3a\u94c3\u58f0");
                           apply.setAllCaps(false);
+                          apply.setTextSize(13);
                           apply.setTextColor(Color.WHITE);
                           GradientDrawable abg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.rgb(14, 165, 233), Color.rgb(16, 185, 129)});
-                          abg.setCornerRadius(24);
+                          abg.setCornerRadius(20);
                           apply.setBackground(abg);
-                          apply.setOnClickListener(v -> applyToneToAlarm(currentEditingAlarmIndex, uri.toString()));
+                          apply.setMinWidth(0); apply.setMinimumWidth(0); apply.setPadding(20, 6, 20, 6);
+                          apply.setOnClickListener(v -> {
+                              selectedUri[0] = uriStr;
+                              applyToneToAlarm(currentEditingAlarmIndex, uriStr);
+                              // \u9ad8\u4eae\u66f4\u65b0
+                              for (int k = 0; k < rowViews.size(); k++) {
+                                  View rv = rowViews.get(k);
+                                  GradientDrawable bg = new GradientDrawable();
+                                  bg.setColor(Color.rgb(15, 23, 42));
+                                  boolean s = rowUris.get(k).equals(selectedUri[0]);
+                                  bg.setStroke(s ? 3 : 1, s ? Color.rgb(16, 185, 129) : Color.rgb(30, 41, 59));
+                                  bg.setCornerRadius(20);
+                                  rv.setBackground(bg);
+                              }
+                          });
                           row.addView(apply);
           
+                          // \u70b9\u51fb\u6574\u884c\u4e5f\u80fd\u8bd5\u542c
+                          row.setOnClickListener(v -> previewRingtoneAt(uriStr));
+                          rowViews.add(row);
+                          rowUris.add(uriStr);
                           list.addView(row);
                       }
                   };
@@ -1353,7 +1520,7 @@ jobs:
                   for (int i = 0; i < tabs.length; i++) {
                       final int idx = i;
                       TextView tab = new TextView(this);
-                      tab.setText(tabs[i]);
+                      tab.setText(tabs[i] + "  (" + allLists.get(i).size() + ")");
                       tab.setTextSize(15);
                       tab.setPadding(20, 12, 20, 12);
                       tab.setOnClickListener(v -> {
@@ -1370,7 +1537,7 @@ jobs:
                       tabViews[i] = tab;
                       tabRow.addView(tab);
                   }
-                  // 默认 Tab 0 选中
+                  // \u9ed8\u8ba4 Tab 0 \u9009\u4e2d
                   tabViews[0].setTextColor(Color.WHITE);
                   GradientDrawable tg0 = new GradientDrawable();
                   tg0.setColor(Color.rgb(30, 41, 59));
@@ -1379,30 +1546,55 @@ jobs:
                   for (int j = 1; j < tabViews.length; j++) tabViews[j].setTextColor(Color.rgb(148, 163, 184));
           
                   root.addView(tabRow);
+          
+                  // \u5934\u90e8\u63d0\u793a
+                  TextView hint = text("\u4ee5\u4e0b\u5217\u8868\u5747\u4e3a\u672c\u673a\u771f\u5b9e\u94c3\u58f0\uff0c\u540d\u79f0\u4e0e\u542c\u5230\u7684\u58f0\u97f3\u4e00\u81f4\u3002\u70b9\u51fb\u201c\u8bd5\u542c\u201d\u9884\u89c8\uff0c\u70b9\u51fb\u201c\u9009\u4e3a\u94c3\u58f0\u201d\u5373\u53ef\u751f\u6548\u3002", 13, Color.rgb(148, 163, 184));
+                  root.addView(hint);
                   root.addView(list);
                   renderList.run();
           
-                  // 底部三个快捷入口（系统铃声、本地音乐、恢复默认）
+                  // \u5e95\u90e8\u4e09\u4e2a\u5feb\u6377\u5165\u53e3\uff08\u7cfb\u7edf\u9009\u62e9\u5668\u3001\u672c\u5730\u97f3\u4e50\u3001\u6062\u590d\u9ed8\u8ba4\uff09
                   LinearLayout footer = new LinearLayout(this);
                   footer.setOrientation(LinearLayout.HORIZONTAL);
                   footer.setPadding(0, 16, 0, 0);
-                  Button sysBtn = button("\u7cfb\u7edf\u94c3\u58f0");
+                  Button sysBtn = button("\u7cfb\u7edf\u9009\u62e9\u5668");
                   Button audBtn = button("\u672c\u5730\u97f3\u4e50");
-                  Button defBtn = button("\u9ed8\u8ba4");
-                  footer.addView(sysBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                  footer.addView(audBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-                  footer.addView(defBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                  Button defBtn = button("\u6062\u590d\u9ed8\u8ba4");
+                  LinearLayout.LayoutParams flp1 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  flp1.setMargins(0, 0, 6, 0);
+                  LinearLayout.LayoutParams flp2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  flp2.setMargins(6, 0, 6, 0);
+                  LinearLayout.LayoutParams flp3 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  flp3.setMargins(6, 0, 0, 0);
+                  footer.addView(sysBtn, flp1);
+                  footer.addView(audBtn, flp2);
+                  footer.addView(defBtn, flp3);
                   root.addView(footer);
           
                   android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
-                      .setTitle("\u95f9\u949f\u94c3\u58f0")
+                      .setTitle("\u9009\u62e9\u95f9\u949f\u94c3\u58f0")
                       .setView(scroll)
-                      .setNegativeButton("\u5173\u95ed", null)
+                      .setNegativeButton("\u5173\u95ed", (d, w) -> stopPreviewRingtone())
+                      .setOnDismissListener(d -> stopPreviewRingtone())
                       .create();
-                  sysBtn.setOnClickListener(v -> { dialog.dismiss(); showRingtonePicker(currentEditingAlarmIndex); });
-                  audBtn.setOnClickListener(v -> { dialog.dismiss(); showAudioPicker(currentEditingAlarmIndex); });
-                  defBtn.setOnClickListener(v -> { dialog.dismiss(); applyToneToAlarm(currentEditingAlarmIndex, ""); });
+                  sysBtn.setOnClickListener(v -> { stopPreviewRingtone(); dialog.dismiss(); showRingtonePicker(currentEditingAlarmIndex); });
+                  audBtn.setOnClickListener(v -> { stopPreviewRingtone(); dialog.dismiss(); showAudioPicker(currentEditingAlarmIndex); });
+                  defBtn.setOnClickListener(v -> { stopPreviewRingtone(); dialog.dismiss(); applyToneToAlarm(currentEditingAlarmIndex, ""); });
                   dialog.show();
+              }
+          
+              private void previewRingtoneAt(String uriStr) {
+                  try {
+                      stopPreviewRingtone();
+                      Uri u = Uri.parse(uriStr);
+                      previewRingtone = RingtoneManager.getRingtone(this, u);
+                      if (previewRingtone != null) previewRingtone.play();
+                  } catch (Exception ignored) {}
+              }
+          
+              private void stopPreviewRingtone() {
+                  try { if (previewRingtone != null && previewRingtone.isPlaying()) previewRingtone.stop(); } catch (Exception ignored) {}
+                  previewRingtone = null;
               }
           
               private void updateAlarmDisplay() {
