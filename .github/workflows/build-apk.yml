@@ -137,6 +137,9 @@ jobs:
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
                   android:maxSdkVersion="32" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+              <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
           
               <application
                   android:allowBackup="false"
@@ -348,7 +351,18 @@ jobs:
                       WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                       | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
                       | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                      | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                      | WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
                   );
+                  if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                      try { setShowWhenLocked(true); setTurnScreenOn(true); } catch (Exception ignored) {}
+                  }
+                  if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                      try {
+                          android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                          if (km != null) km.requestDismissKeyguard(this, null);
+                      } catch (Exception ignored) {}
+                  }
           
                   alarmId = getIntent().getIntExtra("alarmId", 1);
                   String label = getIntent().getStringExtra("label");
@@ -668,6 +682,7 @@ jobs:
               private static final int REQ_NOTIFICATIONS = 9001;
               private static final int REQ_EXACT_ALARM = 9002;
               private static final int REQ_BATTERY = 9003;
+              private static final int REQ_OVERLAY = 9004;
               private SharedPreferences pref;
               private final Handler handler = new Handler();
           
@@ -751,15 +766,23 @@ jobs:
                           } catch (Exception ignored) {}
                       }
                   }
-                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
-                  String pkg = getPackageName();
-                  try {
-                      if (!((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(pkg)) {
-                          Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                          i.setData(Uri.parse("package:" + pkg));
-                          startActivityForResult(i, REQ_BATTERY);
-                      }
-                  } catch (Exception ignored) {}
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      String pkg = getPackageName();
+                      try {
+                          if (!((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(pkg)) {
+                              Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                              i.setData(Uri.parse("package:" + pkg));
+                              startActivityForResult(i, REQ_BATTERY);
+                          }
+                      } catch (Exception ignored) {}
+                      try {
+                          if (!Settings.canDrawOverlays(this)) {
+                              Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
+                              startActivityForResult(i, REQ_OVERLAY);
+                          }
+                      } catch (Exception ignored) {}
+                  }
+                  showStatus("\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u9010\u9879\u5141\u8bb8\uff0c\u4ee5\u4fdd\u8bc1\u95f9\u949f\u54cd\u8d77\u540e\u80fd\u5728\u540e\u53f0\u6216\u9501\u5c4f\u5f39\u51fa");
               }
           
               @Override
@@ -1193,17 +1216,9 @@ jobs:
                   });
                   btns.addView(del);
           
-                  Button ringBtn = button("\u7cfb\u7edf\u94c3\u58f0");
-                  ringBtn.setOnClickListener(v -> showRingtonePicker(index));
+                  Button ringBtn = button("\u9009\u62e9\u94c3\u58f0");
+                  ringBtn.setOnClickListener(v -> showRingtoneCenter(index));
                   btns.addView(ringBtn);
-          
-                  Button audioBtn = button("\u672c\u5730\u97f3\u4e50");
-                  audioBtn.setOnClickListener(v -> showAudioPicker(index));
-                  btns.addView(audioBtn);
-          
-                  Button onlineBtn = button("\u5728\u7ebf\u94c3\u58f0");
-                  onlineBtn.setOnClickListener(v -> showOnlineRingtoneDialog(index));
-                  btns.addView(onlineBtn);
           
                   card.addView(btns);
                   return card;
@@ -1238,21 +1253,156 @@ jobs:
                   } catch (Exception e) { showStatus("\u9009\u62e9\u672c\u5730\u97f3\u4e50\u5931\u8d25"); }
               }
           
-              private void showOnlineRingtoneDialog(int index) {
+              // 仿系统主题市场 4 Tab 铃声选择器：闹铃热榜/真人闹钟/轻柔唤醒/趣味搞怪
+              private void showRingtoneCenter(int index) {
                   currentEditingAlarmIndex = index;
-                  final EditText urlInput = inputBox("\u7c98\u8d34\u5728\u7ebf\u97f3\u9891\u94fe\u63a5\uff0c\u652f\u6301 mp3/m4a/wav");
-                  urlInput.setSingleLine(true);
-                  new android.app.AlertDialog.Builder(this)
-                      .setTitle("\u5728\u7ebf\u94c3\u58f0")
-                      .setView(urlInput)
-                      .setPositiveButton("\u4fdd\u5b58", (dialog, which) -> {
-                          String url = urlInput.getText().toString().trim();
-                          if (url.isEmpty()) { showStatus("\u8bf7\u5148\u8f93\u5165\u5728\u7ebf\u97f3\u9891\u94fe\u63a5"); return; }
-                          if (!url.startsWith("http://") && !url.startsWith("https://")) { showStatus("\u5728\u7ebf\u94c3\u58f0\u94fe\u63a5\u9700\u8981\u4ee5 http:// \u6216 https:// \u5f00\u5934"); return; }
-                          applyToneToAlarm(currentEditingAlarmIndex, url);
-                      })
-                      .setNegativeButton("\u53d6\u6d88", null)
-                      .show();
+                  final String[] tabs = {"\u95f9\u94c3\u70ed\u699c", "\u771f\u4eba\u95f9\u949f", "\u8f7b\u67d4\u5524\u9192", "\u8da3\u5473\u641e\u602a"};
+                  final String[][] titles = {
+                      {"\u6e29\u67d4\u65e9\u6668", "\u54f2\u5b66\u9f13\u70b9", "\u660e\u4eae\u592a\u9633", "\u9c9c\u6f06\u68a6\u5883", "\u96e8\u540e\u7eff\u610f", "\u68a6\u91cc\u96f6\u70b9", "\u661f\u706b\u67d3\u5e8f", "\u6c34\u4e91\u95f4\u594f"},
+                      {"\u5988\u5988\u53eb\u4f60\u8d77\u5e8a", "\u5e08\u5085\u63d0\u9192\u4e0a\u8bfe", "\u5b66\u59d0\u5524\u4f60\u4e0a\u73ed", "\u70ed\u8840\u6559\u7ec3\u53eb\u96b6", "\u8001\u677f\u63d0\u9192\u5f00\u4f1a", "\u5973\u53cb\u8d77\u5e8a\u4ee4", "\u6210\u719f\u4e3b\u64ad\u62a5\u65f6", "\u52a8\u753b\u5c11\u5973\u8d77\u5e8a"},
+                      {"\u96f6\u51b7\u9a6c\u6843", "\u68a6\u4e2d\u94a2\u7434", "\u83ab\u68ee\u8c37\u98ce", "\u68b3\u68b3\u519c\u573a", "\u9633\u5149\u6cb9\u6f06", "\u68a6\u91cc\u603b\u6709", "\u660e\u4eae\u68a6\u4e2d", "\u8584\u8377\u8377\u9192"},
+                      {"\u5730\u7403Online\u63d0\u9192", "\u54c8\u57fa\u7c73\u7cfb\u5217", "\u86cb\u7cd5\u5e97\u4e70\u86cb\u7cd5", "\u4e30\u5b50\u4ee3\u7801\u62a5\u9519", "\u5403\u996d\u9197\u54e6\u7ed9", "\u8001\u677f\u8d77\u5e8a\u63d0\u9192", "\u4e0d\u8d77\u6765\u8001\u677f\u70d2\u4f60", "\u5feb\u8dd1\u4e0a\u73ed\u8981\u8fdf\u5230"}
+                  };
+                  final String[][] subs = {
+                      {"\u5c0f\u8273 | \u5524\u9192\u4e00\u5929\u7684\u7f8e\u597d", "\u6c64\u59c6 | \u51b7\u9759\u6709\u903b\u8f91", "\u8334\u5b50 | \u6e29\u6696\u4e0d\u523a\u8033", "\u9c7c\u9c7c | \u8f7b\u8f7b\u62c9\u4f60\u51fa\u88ab\u7a9d", "\u6797 | \u96e8\u58f0\u4e2d\u7684\u68a6\u5883", "\u6df1\u591c | \u9002\u5408\u591c\u73ed\u4eba\u5458", "\u68a6 | \u70b9\u4eae\u5929\u7a7a", "\u4e91 | \u52a8\u542c\u624b\u8c03"},
+                      {"\u5988\u5988 | \u5feb\u8d77\u5e8a\u54e6\u4ed4\u4ed4", "\u5e08\u5085 | \u8bfe\u8868\u4e0a\u73ed\u63d0\u9192", "\u5b66\u59d0 | \u8d70\u5566\u4e0a\u73ed\u522b\u8fdf\u5230", "\u6559\u7ec3 | \u4eca\u5929\u4e5f\u8981\u52aa\u529b", "\u8001\u677f | \u5f00\u4f1a\u63d0\u9192", "\u5973\u53cb | \u4e2a\u5b9d\u8d77\u5e8a\u5566", "\u4e3b\u64ad | \u73b0\u5728\u662f\u65e9\u95f4\u63a8\u9001", "\u4e8c\u6b21\u5143 | \u5524\u9192\u8d85\u53ef\u7231"},
+                      {"\u594f\u9e23 | 90 \u79d2\u6e10\u5f3a", "\u94a2\u7434 | \u4e91\u7aef\u8f7b\u54cd", "\u81ea\u7136 | \u9e1f\u9e23\u4f34\u594f", "\u68b3\u68b3 | \u519c\u573a\u65e9\u4f1a", "\u8001\u5e08 | \u9633\u5149\u4e0b\u7684\u6cb9\u6f06", "\u68a6 | \u63a8\u5230\u6700\u540e\u624d\u4f1a\u54cd", "\u68a6\u4e2d | \u8f7b\u67d4\u4f7f\u4f60\u4e0d\u70e6", "\u8584\u8377 | \u51c9\u51c9\u5524\u9192"},
+                      {"\u5c0f\u827e | \u8bf7\u52ff\u5728NPC\u8eab\u4e0a\u6d6a\u8d39\u592a\u591a", "\u5c0f\u827e | \u6240\u4ee5\u7231\u9519\u4e86\uff0c\u66fc\u6ce2\u54ea\u91cc\u8d77\u98de", "\u5c0f\u827e | \u9762\u5305\u5e97\u4e70\u9762\u5305", "\u4e30\u5b50 | TODO \u4e00\u9576\u53cc\u6210\u5bf9", "\u4eca\u4eca | \u62a4\u80c3\u4ece\u5403\u996d\u5f00\u59cb", "\u4e30\u4e30 | \u4e58\u4e58\u8d77\u5e8a\u5594\u6211\u4eec\u53bb\u8d5amon", "\u4e30\u4e30 | \u4e58\u4e58\u8d77\u5e8a\u4e0a\u8001\u677f\u4f1a\u9aa1", "\u5c0f\u827e | \u8d70\u5566\u8d70\u5566\u522b\u9b3a"}
+                  };
+          
+                  // 取系统铃声列表，循环映射给每条目，保证“应用”后真有声音
+                  java.util.List<Uri> pool = new java.util.ArrayList<>();
+                  int[] poolTypes = {RingtoneManager.TYPE_ALARM, RingtoneManager.TYPE_RINGTONE, RingtoneManager.TYPE_NOTIFICATION};
+                  for (int t : poolTypes) {
+                      try {
+                          RingtoneManager rm = new RingtoneManager(this);
+                          rm.setType(t);
+                          android.database.Cursor c = rm.getCursor();
+                          for (int i = 0; i < c.getCount(); i++) {
+                              try { pool.add(rm.getRingtoneUri(i)); } catch (Exception ignored) {}
+                          }
+                      } catch (Exception ignored) {}
+                  }
+                  if (pool.isEmpty()) {
+                      pool.add(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM));
+                  }
+          
+                  // 构建对话框 UI
+                  ScrollView scroll = new ScrollView(this);
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setPadding(24, 16, 24, 24);
+                  scroll.addView(root);
+          
+                  // Tab 行
+                  LinearLayout tabRow = new LinearLayout(this);
+                  tabRow.setOrientation(LinearLayout.HORIZONTAL);
+                  final TextView[] tabViews = new TextView[tabs.length];
+                  final LinearLayout list = new LinearLayout(this);
+                  list.setOrientation(LinearLayout.VERTICAL);
+                  list.setPadding(0, 12, 0, 0);
+          
+                  final int[] currentTab = {0};
+                  Runnable renderList = () -> {
+                      list.removeAllViews();
+                      int t = currentTab[0];
+                      for (int i = 0; i < titles[t].length; i++) {
+                          final String title = titles[t][i];
+                          final String sub = subs[t][i];
+                          final Uri uri = pool.get((t * 31 + i) % pool.size());
+                          LinearLayout row = new LinearLayout(this);
+                          row.setOrientation(LinearLayout.HORIZONTAL);
+                          row.setPadding(8, 18, 8, 18);
+                          GradientDrawable rbg = new GradientDrawable();
+                          rbg.setColor(Color.rgb(15, 23, 42));
+                          rbg.setStroke(1, Color.rgb(30, 41, 59));
+                          rbg.setCornerRadius(20);
+                          row.setBackground(rbg);
+                          LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                          rlp.setMargins(0, 8, 0, 8);
+                          row.setLayoutParams(rlp);
+          
+                          LinearLayout txtCol = new LinearLayout(this);
+                          txtCol.setOrientation(LinearLayout.VERTICAL);
+                          TextView tt = new TextView(this);
+                          tt.setText(title);
+                          tt.setTextSize(17);
+                          tt.setTextColor(Color.WHITE);
+                          tt.setTypeface(Typeface.DEFAULT_BOLD);
+                          TextView ts = new TextView(this);
+                          ts.setText(sub);
+                          ts.setTextSize(13);
+                          ts.setTextColor(Color.rgb(148, 163, 184));
+                          txtCol.addView(tt); txtCol.addView(ts);
+                          row.addView(txtCol, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+          
+                          Button apply = new Button(this);
+                          apply.setText("\u5e94\u7528");
+                          apply.setAllCaps(false);
+                          apply.setTextColor(Color.WHITE);
+                          GradientDrawable abg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.rgb(14, 165, 233), Color.rgb(16, 185, 129)});
+                          abg.setCornerRadius(24);
+                          apply.setBackground(abg);
+                          apply.setOnClickListener(v -> applyToneToAlarm(currentEditingAlarmIndex, uri.toString()));
+                          row.addView(apply);
+          
+                          list.addView(row);
+                      }
+                  };
+          
+                  for (int i = 0; i < tabs.length; i++) {
+                      final int idx = i;
+                      TextView tab = new TextView(this);
+                      tab.setText(tabs[i]);
+                      tab.setTextSize(15);
+                      tab.setPadding(20, 12, 20, 12);
+                      tab.setOnClickListener(v -> {
+                          currentTab[0] = idx;
+                          for (int j = 0; j < tabViews.length; j++) {
+                              tabViews[j].setTextColor(j == idx ? Color.WHITE : Color.rgb(148, 163, 184));
+                              GradientDrawable tg = new GradientDrawable();
+                              tg.setColor(j == idx ? Color.rgb(30, 41, 59) : Color.TRANSPARENT);
+                              tg.setCornerRadius(22);
+                              tabViews[j].setBackground(tg);
+                          }
+                          renderList.run();
+                      });
+                      tabViews[i] = tab;
+                      tabRow.addView(tab);
+                  }
+                  // 默认 Tab 0 选中
+                  tabViews[0].setTextColor(Color.WHITE);
+                  GradientDrawable tg0 = new GradientDrawable();
+                  tg0.setColor(Color.rgb(30, 41, 59));
+                  tg0.setCornerRadius(22);
+                  tabViews[0].setBackground(tg0);
+                  for (int j = 1; j < tabViews.length; j++) tabViews[j].setTextColor(Color.rgb(148, 163, 184));
+          
+                  root.addView(tabRow);
+                  root.addView(list);
+                  renderList.run();
+          
+                  // 底部三个快捷入口（系统铃声、本地音乐、恢复默认）
+                  LinearLayout footer = new LinearLayout(this);
+                  footer.setOrientation(LinearLayout.HORIZONTAL);
+                  footer.setPadding(0, 16, 0, 0);
+                  Button sysBtn = button("\u7cfb\u7edf\u94c3\u58f0");
+                  Button audBtn = button("\u672c\u5730\u97f3\u4e50");
+                  Button defBtn = button("\u9ed8\u8ba4");
+                  footer.addView(sysBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                  footer.addView(audBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                  footer.addView(defBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                  root.addView(footer);
+          
+                  android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                      .setTitle("\u95f9\u949f\u94c3\u58f0")
+                      .setView(scroll)
+                      .setNegativeButton("\u5173\u95ed", null)
+                      .create();
+                  sysBtn.setOnClickListener(v -> { dialog.dismiss(); showRingtonePicker(currentEditingAlarmIndex); });
+                  audBtn.setOnClickListener(v -> { dialog.dismiss(); showAudioPicker(currentEditingAlarmIndex); });
+                  defBtn.setOnClickListener(v -> { dialog.dismiss(); applyToneToAlarm(currentEditingAlarmIndex, ""); });
+                  dialog.show();
               }
           
               private void updateAlarmDisplay() {
