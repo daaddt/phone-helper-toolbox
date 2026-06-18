@@ -352,7 +352,7 @@ jobs:
           
                   alarmId = getIntent().getIntExtra("alarmId", 1);
                   String label = getIntent().getStringExtra("label");
-                  if (label == null || label.trim().isEmpty()) label = "\u95f0\u949f";
+                  if (label == null || label.trim().isEmpty()) label = "\u95f9\u949f";
           
                   LinearLayout root = new LinearLayout(this);
                   root.setOrientation(LinearLayout.VERTICAL);
@@ -361,7 +361,7 @@ jobs:
                   root.setBackgroundColor(Color.rgb(7, 17, 31));
           
                   TextView title = new TextView(this);
-                  title.setText("\u95f0\u949f\u54cd\u4e86");
+                  title.setText("\u95f9\u949f\u54cd\u4e86");
                   title.setTextSize(40);
                   title.setTextColor(Color.WHITE);
                   title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -377,7 +377,7 @@ jobs:
                   root.addView(message);
           
                   Button dismiss = new Button(this);
-                  dismiss.setText("\u5173\u95ed\u95f0\u949f");
+                  dismiss.setText("\u5173\u95ed\u95f9\u949f");
                   dismiss.setTextSize(20);
                   dismiss.setAllCaps(false);
                   dismiss.setTextColor(Color.WHITE);
@@ -479,7 +479,7 @@ jobs:
                   }
                   return builder
                       .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                      .setContentTitle("\u95f0\u949f\u54cd\u4e86")
+                      .setContentTitle("\u95f9\u949f\u54cd\u4e86")
                       .setContentText(label)
                       .setContentIntent(pendingIntent)
                       .setFullScreenIntent(pendingIntent, true)
@@ -734,7 +734,6 @@ jobs:
                   renderSavedTexts();
                   renderLinks();
                   handler.post(tick);
-                  requestAlarmPermissions();
               }
           
               private void requestAlarmPermissions() {
@@ -839,8 +838,8 @@ jobs:
                   homePage.addView(homeButton("\u6570\u636e\u5907\u4efd", "\u5bfc\u51fa\u6216\u5bfc\u5165\u5e38\u7528\u6587\u672c\u548c\u5feb\u6377\u94fe\u63a5", "backup"));
                   homePage.addView(sectionTitle("\u5b66\u4e60\u5de5\u5177"));
                   homePage.addView(homeButton("\u8ba1\u65f6\u5668", "\u6b63\u8ba1\u65f6\u3001\u5012\u8ba1\u65f6\u548c\u5feb\u901f\u5012\u8ba1\u65f6", "timer"));
-                  homePage.addView(homeButton("\u756a\u8303\u949f", "\u4e13\u6ce8 25 \u5206\u949f\u3001\u4f11\u606f 5 \u5206\u949f\uff0c\u8bb0\u5f55\u4eca\u65e5\u5b8c\u6210\u6570", "pomo"));
-                  homePage.addView(homeButton("\u95f0\u949f", "\u7cfb\u7edf\u7ea7\u591a\u95f0\u949f\uff0c\u652f\u6301\u6bcf\u65e5\u91cd\u590d\u548c\u81ea\u5b9a\u4e49\u94f3\u58f0", "alarm"));
+                  homePage.addView(homeButton("\u756a\u8304\u949f", "\u4e13\u6ce8 25 \u5206\u949f\u3001\u4f11\u606f 5 \u5206\u949f\uff0c\u8bb0\u5f55\u4eca\u65e5\u5b8c\u6210\u6570", "pomo"));
+                  homePage.addView(homeButton("\u95f9\u949f", "\u7cfb\u7edf\u7ea7\u591a\u95f9\u949f\uff0c\u652f\u6301\u6bcf\u65e5\u91cd\u590d\u548c\u81ea\u5b9a\u4e49\u94c3\u58f0", "alarm"));
                   homePage.addView(sectionTitle("AI\u5de5\u5177"));
                   homePage.addView(homeButton("AI\u804a\u5929", "\u63a5\u5165 OpenAI \u5171\u5bb9\u63a5\u53e3\uff0c\u652f\u6301 openrouter/free", "ai"));
                   homePage.addView(homeButton("AI\u8bbe\u7f6e", "\u586b\u5199 API \u5730\u5740\u3001API Key\u3001\u6a21\u578b\u540d\u548c\u667a\u80fd\u4f53\u8bbe\u5b9a", "aiSettings"));
@@ -930,7 +929,7 @@ jobs:
           
               private void buildTimerPage() {
                   timerPage.addView(sectionTitle("\u8ba1\u65f6\u5668"));
-                  timerPage.addView(infoCard("\u5305\u542b\u6b63\u8ba1\u65f6\u3001\u5012\u8ba1\u65f6\u548c\u5feb\u901f\u5012\u8ba1\u65f6\u3002\u9002\u5408\u4e34\u65f6\u8ba1\u65f6\uff0c\u4e0d\u66ff\u4ee3\u95f0\u949f\u3002"));
+                  timerPage.addView(infoCard("\u5305\u542b\u6b63\u8ba1\u65f6\u3001\u5012\u8ba1\u65f6\u548c\u5feb\u901f\u5012\u8ba1\u65f6\u3002\u9002\u5408\u4e34\u65f6\u8ba1\u65f6\uff0c\u4e0d\u66ff\u4ee3\u95f9\u949f\u3002"));
                   LinearLayout modeRow = row();
                   stopwatchTab = button("\u6b63\u8ba1\u65f6");
                   countdownTab = button("\u5012\u8ba1\u65f6");
@@ -973,7 +972,7 @@ jobs:
               }
           
               private void buildPomoPage() {
-                  pomoPage.addView(sectionTitle("\u756a\u8303\u949f"));
+                  pomoPage.addView(sectionTitle("\u756a\u8304\u949f"));
                   pomoPage.addView(infoCard("\u9ed8\u8ba4\u4e13\u6ce8 25 \u5206\u949f\u3001\u4f11\u606f 5 \u5206\u949f\u3002\u9002\u5408\u5b66\u4e60\u8282\u594f\u7ba1\u7406\u3002"));
                   pomoStateText = text("\u51c6\u5907\u5f00\u59cb\u4e13\u6ce8", 18, Color.rgb(125, 211, 252));
                   pomoStateText.setGravity(Gravity.CENTER);
@@ -981,7 +980,7 @@ jobs:
                   pomoDisplay = text("25:00", 60, Color.WHITE);
                   pomoDisplay.setGravity(Gravity.CENTER);
                   pomoPage.addView(pomoDisplay);
-                  pomoCountText = text("\u4eca\u65e5\u5b8c\u6210 0 \u4e2a\u756a\u8303", 16, Color.rgb(52, 211, 153));
+                  pomoCountText = text("\u4eca\u65e5\u5b8c\u6210 0 \u4e2a\u756a\u8304", 16, Color.rgb(52, 211, 153));
                   pomoCountText.setGravity(Gravity.CENTER);
                   pomoPage.addView(pomoCountText);
                   pomoLoopCheck = new CheckBox(this);
@@ -1000,7 +999,7 @@ jobs:
                   edit.addView(labelWrap("\u4e13\u6ce8", pomoFocusInput), weight());
                   edit.addView(labelWrap("\u4f11\u606f", pomoRestInput), weight());
                   pomoPage.addView(edit);
-                  Button apply = button("\u5e94\u7528\u756a\u8303\u949f\u8bbe\u7f6e");
+                  Button apply = button("\u5e94\u7528\u756a\u8304\u949f\u8bbe\u7f6e");
                   pomoPage.addView(apply);
                   LinearLayout controls = row();
                   Button startPause = button("\u5f00\u59cb/\u6682\u505c");
@@ -1020,8 +1019,12 @@ jobs:
               }
           
               private void buildAlarmPage() {
-                  alarmPage.addView(sectionTitle("\u95f0\u949f"));
-                  alarmPage.addView(infoCard("\u7cfb\u7edf\u7ea7\u95f0\u949f\uff1aApp \u5173\u95ed\u540e\u4ecd\u4f1a\u54cd\u3002\u9700\u6388\u6743\u901a\u77e5\u548c\u7cbe\u786e\u95f0\u949f\u6743\u9650\u3002"));
+                  alarmPage.addView(sectionTitle("\u95f9\u949f"));
+                  alarmPage.addView(infoCard("\u95f9\u949f\u4e0d\u4f1a\u5728\u8fdb\u5165 App \u65f6\u81ea\u52a8\u5f39\u51fa\u6743\u9650\u9875\u3002\u9700\u8981\u65f6\u70b9\u51fb\u201c\u6743\u9650\u8bbe\u7f6e\u201d\uff0c\u518d\u5f00\u542f\u901a\u77e5\u3001\u7cbe\u786e\u95f9\u949f\u548c\u7535\u6c60\u4f18\u5316\u76f8\u5173\u6743\u9650\u3002"));
+          
+                  Button permissionBtn = button("\u6743\u9650\u8bbe\u7f6e");
+                  alarmPage.addView(permissionBtn);
+                  permissionBtn.setOnClickListener(v -> requestAlarmPermissions());
           
                   alarmStatusText = text("", 15, Color.rgb(125, 211, 252));
                   alarmStatusText.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -1031,7 +1034,7 @@ jobs:
                   alarmList.setOrientation(LinearLayout.VERTICAL);
                   alarmPage.addView(alarmList);
           
-                  Button addBtn = button("\u6dfb\u52a0\u95f0\u949f");
+                  Button addBtn = button("\u6dfb\u52a0\u95f9\u949f");
                   alarmPage.addView(addBtn);
                   addBtn.setOnClickListener(v -> showAddAlarmDialog());
                   updateAlarmDisplay();
@@ -1039,7 +1042,7 @@ jobs:
           
               private void showAddAlarmDialog() {
                   android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-                  b.setTitle("\u6dfb\u52a0\u95f0\u949f");
+                  b.setTitle("\u6dfb\u52a0\u95f9\u949f");
                   LinearLayout lay = new LinearLayout(this);
                   lay.setOrientation(LinearLayout.VERTICAL);
                   lay.setPadding(32, 16, 32, 16);
@@ -1095,7 +1098,7 @@ jobs:
                       int hour = Math.max(0, Math.min(23, parseInt(hInput.getText().toString(), 7)));
                       int minute = Math.max(0, Math.min(59, parseInt(mInput.getText().toString(), 0)));
                       String label = lInput.getText().toString().trim();
-                      if (label.isEmpty()) label = "\u95f0\u949f";
+                      if (label.isEmpty()) label = "\u95f9\u949f";
                       boolean repeat = repeatChk.isChecked();
                       addAlarm(hour, minute, label, repeat, "");
                   });
@@ -1119,7 +1122,7 @@ jobs:
                       saveArray("systemAlarms", alarms);
                       AlarmReceiver.scheduleExactAlarm(this, a);
                       renderAlarmList();
-                      showStatus("\u95f0\u949f\u5df2\u6dfb\u52a0\uff1a" + String.format(Locale.getDefault(), "%02d:%02d", hour, minute));
+                      showStatus("\u95f9\u949f\u5df2\u6dfb\u52a0\uff1a" + String.format(Locale.getDefault(), "%02d:%02d", hour, minute));
                   } catch (Exception e) { showStatus("\u6dfb\u52a0\u5931\u8d25"); }
               }
           
@@ -1138,7 +1141,7 @@ jobs:
                   LinearLayout card = card();
                   int hour = a.optInt("hour", 7);
                   int minute = a.optInt("minute", 0);
-                  String label = a.optString("label", "\u95f0\u949f");
+                  String label = a.optString("label", "\u95f9\u949f");
                   boolean enabled = a.optBoolean("enabled", true);
                   boolean repeat = a.optBoolean("repeatDaily", false);
                   String tone = a.optString("toneUri", "");
@@ -1146,7 +1149,7 @@ jobs:
                   TextView time = text(String.format(Locale.getDefault(), "%02d:%02d", hour, minute) + (repeat ? " \u6bcf\u5929" : ""), 28, Color.WHITE);
                   time.setTypeface(Typeface.DEFAULT_BOLD);
                   card.addView(time);
-                  card.addView(text(label + (tone.isEmpty() ? "\uff08\u7cfb\u7edf\u94f3\u58f0\uff09" : "\uff08\u81ea\u5b9a\u4e49\uff09"), 14, Color.LTGRAY));
+                  card.addView(text(label + (tone.isEmpty() ? "\uff08\u7cfb\u7edf\u94c3\u58f0\uff09" : "\uff08\u81ea\u5b9a\u4e49\uff09"), 14, Color.LTGRAY));
           
                   LinearLayout btns = row();
                   CheckBox sw = new CheckBox(this);
@@ -1165,7 +1168,7 @@ jobs:
                               PendingIntent pi = PendingIntent.getBroadcast(this, a.optInt("id", 0), intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                               if (am != null) am.cancel(pi);
                           }
-                          showStatus(chk ? "\u95f0\u949f\u5df2\u5f00\u542f" : "\u95f0\u949f\u5df2\u5173\u95ed");
+                          showStatus(chk ? "\u95f9\u949f\u5df2\u5f00\u542f" : "\u95f9\u949f\u5df2\u5173\u95ed");
                           updateAlarmDisplay();
                       } catch (Exception ignored) {}
                   });
@@ -1185,18 +1188,22 @@ jobs:
                           saveArray("systemAlarms", n);
                           renderAlarmList();
                           updateAlarmDisplay();
-                          showStatus("\u95f0\u949f\u5df2\u5220\u9664");
+                          showStatus("\u95f9\u949f\u5df2\u5220\u9664");
                       } catch (Exception ignored) {}
                   });
                   btns.addView(del);
           
-                  Button ringBtn = button("\u9009\u94f3\u58f0");
+                  Button ringBtn = button("\u7cfb\u7edf\u94c3\u58f0");
                   ringBtn.setOnClickListener(v -> showRingtonePicker(index));
                   btns.addView(ringBtn);
           
-                  Button audioBtn = button("\u672c\u673a\u97f3\u4e50");
+                  Button audioBtn = button("\u672c\u5730\u97f3\u4e50");
                   audioBtn.setOnClickListener(v -> showAudioPicker(index));
                   btns.addView(audioBtn);
+          
+                  Button onlineBtn = button("\u5728\u7ebf\u94c3\u58f0");
+                  onlineBtn.setOnClickListener(v -> showOnlineRingtoneDialog(index));
+                  btns.addView(onlineBtn);
           
                   card.addView(btns);
                   return card;
@@ -1208,8 +1215,8 @@ jobs:
                   currentEditingAlarmIndex = index;
                   try {
                       Intent intent = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
-                      intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM);
-                      intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "\u9009\u62e9\u95f0\u949f\u94f3\u58f0");
+                      intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM | RingtoneManager.TYPE_RINGTONE | RingtoneManager.TYPE_NOTIFICATION);
+                      intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "\u9009\u62e9\u7cfb\u7edf\u94c3\u58f0");
                       intent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
                       intent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false);
                       JSONArray alarms = loadArray("systemAlarms");
@@ -1217,7 +1224,7 @@ jobs:
                       Uri current = existing.isEmpty() ? RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) : Uri.parse(existing);
                       intent.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, current);
                       startActivityForResult(intent, PICK_ALARM_RINGTONE);
-                  } catch (Exception e) { showStatus("\u9009\u62e9\u94f3\u58f0\u5931\u8d25"); }
+                  } catch (Exception e) { showStatus("\u6253\u5f00\u7cfb\u7edf\u94c3\u58f0\u5931\u8d25"); }
               }
           
               private void showAudioPicker(int index) {
@@ -1226,8 +1233,26 @@ jobs:
                       Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                       intent.addCategory(Intent.CATEGORY_OPENABLE);
                       intent.setType("audio/*");
+                      intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
                       startActivityForResult(intent, PICK_ALARM_AUDIO);
-                  } catch (Exception e) { showStatus("\u9009\u62e9\u97f3\u4e50\u5931\u8d25"); }
+                  } catch (Exception e) { showStatus("\u9009\u62e9\u672c\u5730\u97f3\u4e50\u5931\u8d25"); }
+              }
+          
+              private void showOnlineRingtoneDialog(int index) {
+                  currentEditingAlarmIndex = index;
+                  final EditText urlInput = inputBox("\u7c98\u8d34\u5728\u7ebf\u97f3\u9891\u94fe\u63a5\uff0c\u652f\u6301 mp3/m4a/wav");
+                  urlInput.setSingleLine(true);
+                  new android.app.AlertDialog.Builder(this)
+                      .setTitle("\u5728\u7ebf\u94c3\u58f0")
+                      .setView(urlInput)
+                      .setPositiveButton("\u4fdd\u5b58", (dialog, which) -> {
+                          String url = urlInput.getText().toString().trim();
+                          if (url.isEmpty()) { showStatus("\u8bf7\u5148\u8f93\u5165\u5728\u7ebf\u97f3\u9891\u94fe\u63a5"); return; }
+                          if (!url.startsWith("http://") && !url.startsWith("https://")) { showStatus("\u5728\u7ebf\u94c3\u58f0\u94fe\u63a5\u9700\u8981\u4ee5 http:// \u6216 https:// \u5f00\u5934"); return; }
+                          applyToneToAlarm(currentEditingAlarmIndex, url);
+                      })
+                      .setNegativeButton("\u53d6\u6d88", null)
+                      .show();
               }
           
               private void updateAlarmDisplay() {
@@ -1248,15 +1273,15 @@ jobs:
                   } catch (Exception ignored) {}
           
                   if (hasEnabled && nearest > 0) {
-                      sb.append("\u4e0b\u4e00\u4e2a\u95f0\u949f\uff1a").append(formatAlarmTime(nearest));
+                      sb.append("\u4e0b\u4e00\u4e2a\u95f9\u949f\uff1a").append(formatAlarmTime(nearest));
                   } else {
-                      sb.append("\u6682\u65e0\u5df2\u5f00\u542f\u7684\u95f0\u949f");
+                      sb.append("\u6682\u65e0\u5df2\u5f00\u542f\u7684\u95f9\u949f");
                   }
           
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                       AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
                       if (am != null && !am.canScheduleExactAlarms()) {
-                          sb.append("\n\uff01\u7cbe\u786e\u95f0\u949f\u6743\u9650\u672a\u6388\u6743\uff0c\u95f0\u949f\u53ef\u80fd\u4e0d\u51c6\u65f6");
+                          sb.append("\n\uff01\u7cbe\u786e\u95f9\u949f\u6743\u9650\u672a\u6388\u6743\uff0c\u95f9\u949f\u53ef\u80fd\u4e0d\u51c6\u65f6");
                       }
                   }
           
@@ -1432,7 +1457,7 @@ jobs:
                       if (a.optBoolean("enabled", false)) AlarmReceiver.scheduleExactAlarm(this, a);
                       renderAlarmList();
                       updateAlarmDisplay();
-                      showStatus(uriStr.isEmpty() ? "\u5df2\u6062\u590d\u7cfb\u7edf\u9ed8\u8ba4\u94f3\u58f0" : "\u5df2\u9009\u62e9\u81ea\u5b9a\u4e49\u94f3\u58f0");
+                      showStatus(uriStr.isEmpty() ? "\u5df2\u6062\u590d\u7cfb\u7edf\u9ed8\u8ba4\u94c3\u58f0" : "\u94c3\u58f0\u5df2\u4fdd\u5b58");
                   } catch (Exception ignored) {}
               }
           
@@ -1709,7 +1734,7 @@ jobs:
                         .putBoolean("pomoLoop", pomoLoopCheck == null || pomoLoopCheck.isChecked()).apply();
                   pomoFocus = true; pomoRunning = false;
                   pomoDuration = focusMin * 60 * 1000L; pomoElapsed = 0;
-                  updatePomoDisplay(); showStatus("\u756a\u8303\u949f\u8bbe\u7f6e\u5df2\u5e94\u7528");
+                  updatePomoDisplay(); showStatus("\u756a\u8304\u949f\u8bbe\u7f6e\u5df2\u5e94\u7528");
               }
           
               private void togglePomo() {
@@ -1728,7 +1753,7 @@ jobs:
                   pomoFocus = false; pomoRunning = false;
                   pomoDuration = pref.getInt("pomoRestMin", 5) * 60 * 1000L; pomoElapsed = 0;
                   updatePomoDisplay(); savePomoState();
-                  showStatus("\u5df2\u8bb0\u5f55\u5b8c\u6210 1 \u4e2a\u756a\u8303");
+                  showStatus("\u5df2\u8bb0\u5f55\u5b8c\u6210 1 \u4e2a\u756a\u8304");
               }
           
               private long getPomoElapsed() { return pomoRunning ? Math.min(pomoDuration, pomoElapsed + SystemClock.elapsedRealtime() - pomoStartedAt) : pomoElapsed; }
@@ -1754,7 +1779,7 @@ jobs:
                   }
                   pomoDisplay.setText(formatMinutes(getPomoRemaining()));
                   pomoStateText.setText((pomoFocus ? "\u4e13\u6ce8" : "\u4f11\u606f") + (pomoRunning ? "\u4e2d" : "\u5df2\u6682\u505c/\u5f85\u5f00\u59cb"));
-                  pomoCountText.setText("\u4eca\u65e5\u5b8c\u6210 " + getTodayPomoCount() + " \u4e2a\u756a\u8303");
+                  pomoCountText.setText("\u4eca\u65e5\u5b8c\u6210 " + getTodayPomoCount() + " \u4e2a\u756a\u8304");
               }
           
               private void increasePomoCount() {
