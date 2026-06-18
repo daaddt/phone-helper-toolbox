@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 33
-                  versionName "1.8.9"
+                  versionCode 34
+                  versionName "1.9.0"
               }
           
               compileOptions {
@@ -154,6 +154,7 @@ jobs:
                       android:excludeFromRecents="true"
                       android:showWhenLocked="true"
                       android:turnScreenOn="true"
+                      android:taskAffinity=""
                       android:launchMode="singleTop" />
           
                   <service
@@ -238,7 +239,7 @@ jobs:
                   ring.putExtra("alarmId", alarmId);
                   ring.putExtra("label", label);
                   ring.putExtra("toneUri", toneUri);
-                  ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
                   try { context.startActivity(ring); } catch (Exception e) {}
           
                   wl.release();
@@ -264,8 +265,9 @@ jobs:
                       for (int i = 0; i < alarms.length(); i++) {
                           JSONObject a = alarms.getJSONObject(i);
                           if (a.optInt("id", 0) != alarmId) continue;
-                          if (a.optBoolean("repeatDaily", false)) {
-                              long nextAt = nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0));
+                          String repeatDays = a.optString("repeatDays", "");
+                          if (a.optBoolean("repeatDaily", false) || !repeatDays.isEmpty()) {
+                              long nextAt = nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), repeatDays);
                               a.put("nextAt", nextAt);
                               alarms.put(i, a);
                               pref.edit().putString("systemAlarms", alarms.toString()).apply();
@@ -280,12 +282,25 @@ jobs:
                   } catch (Exception ignored) {}
               }
           
-              private long nextAlarmTime(int hour, int minute) {
+              private long nextAlarmTime(int hour, int minute, String repeatDays) {
                   Calendar c = Calendar.getInstance();
                   c.set(Calendar.HOUR_OF_DAY, hour);
                   c.set(Calendar.MINUTE, minute);
                   c.set(Calendar.SECOND, 0);
                   c.set(Calendar.MILLISECOND, 0);
+                  long now = System.currentTimeMillis();
+                  if (repeatDays == null || repeatDays.trim().isEmpty()) {
+                      c.add(Calendar.DAY_OF_MONTH, 1);
+                      return c.getTimeInMillis();
+                  }
+                  for (int d = 0; d <= 7; d++) {
+                      Calendar candidate = (Calendar) c.clone();
+                      candidate.add(Calendar.DAY_OF_MONTH, d);
+                      int dayIndex = (candidate.get(Calendar.DAY_OF_WEEK) + 5) % 7; // 周一=0，周日=6
+                      if (repeatDays.contains(String.valueOf(dayIndex)) && candidate.getTimeInMillis() > now) {
+                          return candidate.getTimeInMillis();
+                      }
+                  }
                   c.add(Calendar.DAY_OF_MONTH, 1);
                   return c.getTimeInMillis();
               }
@@ -326,7 +341,9 @@ jobs:
           package com.trae.phonehelper;
           
           import android.app.Activity;
+          import android.app.AlarmManager;
           import android.app.NotificationManager;
+          import android.app.PendingIntent;
           import android.content.Context;
           import android.content.Intent;
           import android.graphics.Color;
@@ -390,6 +407,24 @@ jobs:
                   message.setPadding(0, 32, 0, 48);
                   root.addView(message);
           
+                  LinearLayout actionRow = new LinearLayout(this);
+                  actionRow.setOrientation(LinearLayout.HORIZONTAL);
+                  actionRow.setGravity(Gravity.CENTER);
+          
+                  Button snooze = new Button(this);
+                  snooze.setText("延迟 10 分钟");
+                  snooze.setTextSize(18);
+                  snooze.setAllCaps(false);
+                  snooze.setTextColor(Color.WHITE);
+                  GradientDrawable snoozeBg = new GradientDrawable(
+                      GradientDrawable.Orientation.LEFT_RIGHT,
+                      new int[]{Color.rgb(99, 102, 241), Color.rgb(14, 165, 233)}
+                  );
+                  snoozeBg.setCornerRadius(28);
+                  snooze.setBackground(snoozeBg);
+                  snooze.setPadding(24, 18, 24, 18);
+                  snooze.setOnClickListener(v -> snoozeAlarm());
+          
                   Button dismiss = new Button(this);
                   dismiss.setText("\u5173\u95ed\u95f9\u949f");
                   dismiss.setTextSize(20);
@@ -403,10 +438,35 @@ jobs:
                   dismiss.setBackground(bg);
                   dismiss.setPadding(32, 20, 32, 20);
                   dismiss.setOnClickListener(v -> dismissAlarm());
-                  root.addView(dismiss);
+                  LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  left.setMargins(0, 0, 10, 0);
+                  LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  right.setMargins(10, 0, 0, 0);
+                  actionRow.addView(snooze, left);
+                  actionRow.addView(dismiss, right);
+                  root.addView(actionRow);
           
                   setContentView(root);
                   handler.postDelayed(this::dismissAlarm, 180000);
+              }
+          
+              private void snoozeAlarm() {
+                  try {
+                      AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                      Intent intent = new Intent(this, AlarmReceiver.class);
+                      intent.setAction("com.trae.phonehelper.ALARM_SNOOZE_" + alarmId);
+                      intent.putExtra("alarmId", alarmId);
+                      PendingIntent pi = PendingIntent.getBroadcast(this, alarmId + 900000, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                      long at = System.currentTimeMillis() + 10 * 60 * 1000L;
+                      if (am != null) {
+                          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
+                              am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+                          } else {
+                              am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, pi), pi);
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  dismissAlarm();
               }
           
               private void dismissAlarm() {
@@ -479,7 +539,7 @@ jobs:
                   Intent ring = new Intent(this, AlarmRingActivity.class);
                   ring.putExtra("alarmId", alarmId);
                   ring.putExtra("label", label);
-                  ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
                   PendingIntent pendingIntent = PendingIntent.getActivity(
                       this, alarmId + 200000, ring,
                       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
@@ -591,8 +651,8 @@ jobs:
                           JSONObject alarm = alarms.getJSONObject(i);
                           if (alarm.optBoolean("enabled", false)) {
                               long nextAt = alarm.optLong("nextAt", 0);
-                              if (nextAt == 0) {
-                                  nextAt = computeNextAt(alarm.optInt("hour", 7), alarm.optInt("minute", 0));
+                              if (nextAt <= System.currentTimeMillis()) {
+                                  nextAt = computeNextAt(alarm.optInt("hour", 7), alarm.optInt("minute", 0), alarm.optString("repeatDays", ""));
                                   alarm.put("nextAt", nextAt);
                               }
                               AlarmReceiver.scheduleExactAlarm(context, alarm);
@@ -601,12 +661,23 @@ jobs:
                   } catch (Exception ignored) {}
               }
           
-              private long computeNextAt(int hour, int minute) {
+              private long computeNextAt(int hour, int minute, String repeatDays) {
                   Calendar c = Calendar.getInstance();
                   c.set(Calendar.HOUR_OF_DAY, hour);
                   c.set(Calendar.MINUTE, minute);
                   c.set(Calendar.SECOND, 0);
                   c.set(Calendar.MILLISECOND, 0);
+                  if (repeatDays != null && !repeatDays.trim().isEmpty()) {
+                      long now = System.currentTimeMillis();
+                      for (int d = 0; d <= 7; d++) {
+                          Calendar candidate = (Calendar) c.clone();
+                          candidate.add(Calendar.DAY_OF_MONTH, d);
+                          int dayIndex = (candidate.get(Calendar.DAY_OF_WEEK) + 5) % 7;
+                          if (repeatDays.contains(String.valueOf(dayIndex)) && candidate.getTimeInMillis() > now) {
+                              return candidate.getTimeInMillis();
+                          }
+                      }
+                  }
                   if (c.getTimeInMillis() <= System.currentTimeMillis()) {
                       c.add(Calendar.DAY_OF_MONTH, 1);
                   }
@@ -752,37 +823,51 @@ jobs:
               }
           
               private void requestAlarmPermissions() {
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                      if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                          requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
-                      }
-                  }
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                      AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-                      if (am != null && !am.canScheduleExactAlarms()) {
+                  showAlarmPermissionCenter();
+                  showStatus("请选择需要开启的系统权限");
+              }
+          
+              private void showAlarmPermissionCenter() {
+                  final String[] items = {"应用权限详情", "通知权限", "全屏通知/锁屏弹出", "精确闹钟权限", "电池优化设置", "悬浮窗权限"};
+                  new android.app.AlertDialog.Builder(this)
+                      .setTitle("权限设置")
+                      .setMessage("可以随时进入系统设置，按需开启通知、精确闹钟、锁屏弹出、电池后台和悬浮窗相关权限。不同手机厂商的页面名称可能略有不同。")
+                      .setItems(items, (d, which) -> {
                           try {
-                              Intent i = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
-                              startActivityForResult(i, REQ_EXACT_ALARM);
-                          } catch (Exception ignored) {}
-                      }
-                  }
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                      String pkg = getPackageName();
-                      try {
-                          if (!((PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(pkg)) {
-                              Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                              i.setData(Uri.parse("package:" + pkg));
-                              startActivityForResult(i, REQ_BATTERY);
+                              Intent i;
+                              String pkg = getPackageName();
+                              if (which == 0) {
+                                  i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
+                              } else if (which == 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                  requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
+                                  return;
+                              } else if (which == 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                  i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                                  i.putExtra(Settings.EXTRA_APP_PACKAGE, pkg);
+                              } else if (which == 2 && Build.VERSION.SDK_INT >= 34) {
+                                  i = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
+                                  i.setData(Uri.parse("package:" + pkg));
+                              } else if (which == 3 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                  i = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                                  i.setData(Uri.parse("package:" + pkg));
+                              } else if (which == 4 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                  i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                                  i.setData(Uri.parse("package:" + pkg));
+                              } else if (which == 5 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                  i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + pkg));
+                              } else {
+                                  i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
+                              }
+                              startActivity(i);
+                          } catch (Exception e) {
+                              try {
+                                  Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+                                  startActivity(fallback);
+                              } catch (Exception ignored) {}
                           }
-                      } catch (Exception ignored) {}
-                      try {
-                          if (!Settings.canDrawOverlays(this)) {
-                              Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
-                              startActivityForResult(i, REQ_OVERLAY);
-                          }
-                      } catch (Exception ignored) {}
-                  }
-                  showStatus("\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u9010\u9879\u5141\u8bb8\uff0c\u4ee5\u4fdd\u8bc1\u95f9\u949f\u54cd\u8d77\u540e\u80fd\u5728\u540e\u53f0\u6216\u9501\u5c4f\u5f39\u51fa");
+                      })
+                      .setPositiveButton("关闭", null)
+                      .show();
               }
           
               @Override
@@ -1043,7 +1128,7 @@ jobs:
           
               private void buildAlarmPage() {
                   alarmPage.addView(sectionTitle("\u95f9\u949f"));
-                  alarmPage.addView(infoCard("\u95f9\u949f\u4e0d\u4f1a\u5728\u8fdb\u5165 App \u65f6\u81ea\u52a8\u5f39\u51fa\u6743\u9650\u9875\u3002\u9700\u8981\u65f6\u70b9\u51fb\u201c\u6743\u9650\u8bbe\u7f6e\u201d\uff0c\u518d\u5f00\u542f\u901a\u77e5\u3001\u7cbe\u786e\u95f9\u949f\u548c\u7535\u6c60\u4f18\u5316\u76f8\u5173\u6743\u9650\u3002"));
+                  alarmPage.addView(infoCard("\u70b9\u51fb\u201c\u6743\u9650\u8bbe\u7f6e\u201d\u53ef\u968f\u65f6\u8fdb\u5165\u672c\u8f6f\u4ef6\u7684\u7cfb\u7edf\u6743\u9650\u9875\u9762\uff0c\u5efa\u8bae\u5f00\u542f\u901a\u77e5\u3001\u7cbe\u786e\u95f9\u949f\u3001\u7535\u6c60\u4f18\u5316\u548c\u9501\u5c4f\u5f39\u51fa\u76f8\u5173\u6743\u9650\uff0c\u8fd9\u6837\u95f9\u949f\u5230\u70b9\u66f4\u5bb9\u6613\u50cf\u7cfb\u7edf\u95f9\u949f\u4e00\u6837\u5f39\u51fa\u3002"));
           
                   // \u9876\u90e8\u4e24\u4e2a\u4e3b\u64cd\u4f5c\u6309\u94ae\u7b49\u5bbd\u5e76\u6392\uff0c\u66f4\u6574\u9f50
                   LinearLayout topRow = new LinearLayout(this);
@@ -1076,14 +1161,15 @@ jobs:
                   // \u9884\u52a0\u8f7d\uff1a\u7f16\u8f91\u6a21\u5f0f\u4e0b\u586b\u5165\u5df2\u6709\u6570\u503c
                   int initHour = 7, initMinute = 0;
                   String initLabel = "";
-                  boolean initRepeat = false;
+                  String initRepeatDays = "";
                   if (editIndex >= 0) {
                       try {
                           JSONObject a = loadArray("systemAlarms").getJSONObject(editIndex);
                           initHour = a.optInt("hour", 7);
                           initMinute = a.optInt("minute", 0);
                           initLabel = a.optString("label", "");
-                          initRepeat = a.optBoolean("repeatDaily", false);
+                          initRepeatDays = a.optString("repeatDays", "");
+                          if (initRepeatDays.isEmpty() && a.optBoolean("repeatDaily", false)) initRepeatDays = allWeekDays();
                       } catch (Exception ignored) {}
                   }
           
@@ -1131,10 +1217,23 @@ jobs:
                   lInput.setPadding(16,12,16,12);
                   if (editIndex >= 0) lInput.setText(initLabel);
           
-                  CheckBox repeatChk = new CheckBox(this);
-                  repeatChk.setText("\u6bcf\u5929\u91cd\u590d");
-                  repeatChk.setTextColor(Color.WHITE);
-                  repeatChk.setChecked(initRepeat);
+                  TextView repeatTitle = text("重复日期（不勾选则只响一次）", 14, Color.LTGRAY);
+                  CheckBox[] weekChecks = new CheckBox[7];
+                  LinearLayout weekRow1 = new LinearLayout(this);
+                  weekRow1.setOrientation(LinearLayout.HORIZONTAL);
+                  LinearLayout weekRow2 = new LinearLayout(this);
+                  weekRow2.setOrientation(LinearLayout.HORIZONTAL);
+                  String[] weekNames = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+                  for (int i = 0; i < 7; i++) {
+                      CheckBox cb = new CheckBox(this);
+                      cb.setText(weekNames[i]);
+                      cb.setTextColor(Color.WHITE);
+                      cb.setTextSize(13);
+                      cb.setChecked(initRepeatDays.contains(String.valueOf(i)));
+                      weekChecks[i] = cb;
+                      if (i < 4) weekRow1.addView(cb, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                      else weekRow2.addView(cb, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                  }
           
                   LinearLayout hm = new LinearLayout(this);
                   hm.setOrientation(LinearLayout.HORIZONTAL);
@@ -1142,7 +1241,9 @@ jobs:
                   hm.addView(mInput, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
                   lay.addView(hm);
                   lay.addView(lInput);
-                  lay.addView(repeatChk);
+                  lay.addView(repeatTitle);
+                  lay.addView(weekRow1);
+                  lay.addView(weekRow2);
                   b.setView(lay);
                   final int finalEditIndex = editIndex;
                   b.setPositiveButton(editIndex >= 0 ? "\u4fdd\u5b58" : "\u786e\u5b9a", (d, w) -> {
@@ -1150,19 +1251,48 @@ jobs:
                       int minute = Math.max(0, Math.min(59, parseInt(mInput.getText().toString(), 0)));
                       String label = lInput.getText().toString().trim();
                       if (label.isEmpty()) label = "\u95f9\u949f";
-                      boolean repeat = repeatChk.isChecked();
+                      String repeatDays = selectedWeekDays(weekChecks);
                       if (finalEditIndex >= 0) {
-                          updateAlarm(finalEditIndex, hour, minute, label, repeat);
+                          updateAlarm(finalEditIndex, hour, minute, label, repeatDays);
                       } else {
-                          addAlarm(hour, minute, label, repeat, "");
+                          addAlarm(hour, minute, label, repeatDays, "");
                       }
                   });
                   b.setNegativeButton("\u53d6\u6d88", null);
                   b.show();
               }
           
+              private String selectedWeekDays(CheckBox[] checks) {
+                  StringBuilder sb = new StringBuilder();
+                  for (int i = 0; i < checks.length; i++) {
+                      if (checks[i] != null && checks[i].isChecked()) {
+                          if (sb.length() > 0) sb.append(",");
+                          sb.append(i);
+                      }
+                  }
+                  return sb.toString();
+              }
+          
+              private String allWeekDays() { return "0,1,2,3,4,5,6"; }
+          
+              private String repeatDaysText(String repeatDays) {
+                  if (repeatDays == null || repeatDays.trim().isEmpty()) return "只响一次";
+                  String[] names = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+                  boolean all = true;
+                  StringBuilder sb = new StringBuilder();
+                  for (int i = 0; i < names.length; i++) {
+                      if (repeatDays.contains(String.valueOf(i))) {
+                          if (sb.length() > 0) sb.append("、");
+                          sb.append(names[i]);
+                      } else {
+                          all = false;
+                      }
+                  }
+                  return all ? "每天" : sb.toString();
+              }
+          
               // \u7f16\u8f91\u5df2\u6709\u95f9\u949f\uff1a\u4fdd\u7559 id / toneUri / enabled\uff0c\u91cd\u65b0\u8c03\u5ea6
-              private void updateAlarm(int index, int hour, int minute, String label, boolean repeat) {
+              private void updateAlarm(int index, int hour, int minute, String label, String repeatDays) {
                   try {
                       JSONArray alarms = loadArray("systemAlarms");
                       JSONObject a = alarms.getJSONObject(index);
@@ -1177,8 +1307,9 @@ jobs:
                       a.put("hour", hour);
                       a.put("minute", minute);
                       a.put("label", label);
-                      a.put("repeatDaily", repeat);
-                      a.put("nextAt", nextAlarmTime(hour, minute));
+                      a.put("repeatDays", repeatDays);
+                      a.put("repeatDaily", allWeekDays().equals(repeatDays));
+                      a.put("nextAt", nextAlarmTime(hour, minute, repeatDays));
                       alarms.put(index, a);
                       saveArray("systemAlarms", alarms);
                       if (a.optBoolean("enabled", true)) AlarmReceiver.scheduleExactAlarm(this, a);
@@ -1188,7 +1319,7 @@ jobs:
                   } catch (Exception e) { showStatus("\u4fdd\u5b58\u5931\u8d25"); }
               }
           
-              private void addAlarm(int hour, int minute, String label, boolean repeat, String toneUri) {
+              private void addAlarm(int hour, int minute, String label, String repeatDays, String toneUri) {
                   try {
                       JSONArray alarms = loadArray("systemAlarms");
                       JSONObject a = new JSONObject();
@@ -1197,9 +1328,10 @@ jobs:
                       a.put("minute", minute);
                       a.put("label", label);
                       a.put("enabled", true);
-                      a.put("repeatDaily", repeat);
+                      a.put("repeatDays", repeatDays);
+                      a.put("repeatDaily", allWeekDays().equals(repeatDays));
                       a.put("toneUri", toneUri != null ? toneUri : "");
-                      a.put("nextAt", nextAlarmTime(hour, minute));
+                      a.put("nextAt", nextAlarmTime(hour, minute, repeatDays));
                       alarms.put(a);
                       saveArray("systemAlarms", alarms);
                       AlarmReceiver.scheduleExactAlarm(this, a);
@@ -1225,14 +1357,15 @@ jobs:
                   int minute = a.optInt("minute", 0);
                   String label = a.optString("label", "\u95f9\u949f");
                   boolean enabled = a.optBoolean("enabled", true);
-                  boolean repeat = a.optBoolean("repeatDaily", false);
+                  String repeatDays = a.optString("repeatDays", "");
+                  if (repeatDays.isEmpty() && a.optBoolean("repeatDaily", false)) repeatDays = allWeekDays();
                   String tone = a.optString("toneUri", "");
           
                   // \u9876\u90e8\uff1a\u65f6\u95f4 + \u53f3\u4fa7\u5f00\u5173\uff08\u5360\u6ee1\u5bbd\u5ea6\uff0c\u6574\u9f50\uff09
                   LinearLayout topLine = new LinearLayout(this);
                   topLine.setOrientation(LinearLayout.HORIZONTAL);
                   topLine.setGravity(Gravity.CENTER_VERTICAL);
-                  TextView time = text(String.format(Locale.getDefault(), "%02d:%02d", hour, minute) + (repeat ? "  \u6bcf\u5929" : ""), 28, Color.WHITE);
+                  TextView time = text(String.format(Locale.getDefault(), "%02d:%02d", hour, minute), 28, Color.WHITE);
                   time.setTypeface(Typeface.DEFAULT_BOLD);
                   topLine.addView(time, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
           
@@ -1242,6 +1375,12 @@ jobs:
                       try {
                           a.put("enabled", chk);
                           JSONArray alarms = loadArray("systemAlarms");
+                          String rd = a.optString("repeatDays", "");
+                          if (rd.isEmpty() && a.optBoolean("repeatDaily", false)) {
+                              rd = allWeekDays();
+                              a.put("repeatDays", rd);
+                          }
+                          if (chk) a.put("nextAt", nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), rd));
                           alarms.put(index, a);
                           saveArray("systemAlarms", alarms);
                           if (chk) { AlarmReceiver.scheduleExactAlarm(MainActivity.this, a); }
@@ -1261,6 +1400,7 @@ jobs:
           
                   // \u6807\u7b7e
                   card.addView(text(label, 14, Color.LTGRAY));
+                  card.addView(text("重复：" + repeatDaysText(repeatDays), 13, Color.rgb(148, 163, 184)));
                   // \u771f\u5b9e\u94c3\u58f0\u540d\u79f0\uff08\u83b7\u53d6\u4e0d\u5230\u65f6\u9000\u56de\u63cf\u8ff0\uff09
                   String toneName = tone.isEmpty() ? "\u7cfb\u7edf\u9ed8\u8ba4\u95f9\u94c3" : ringtoneTitleOf(tone);
                   card.addView(text("\u94c3\u58f0\uff1a" + toneName, 13, Color.rgb(148, 163, 184)));
@@ -1394,6 +1534,10 @@ jobs:
                   final java.util.List<java.util.List<String[]>> allLists = new java.util.ArrayList<>();
                   for (int t : tabTypes) {
                       java.util.List<String[]> list = new java.util.ArrayList<>();
+                      if (t == RingtoneManager.TYPE_ALARM) {
+                          Uri def = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+                          if (def != null) list.add(new String[]{"系统默认闹钟（默认）", def.toString(), ""});
+                      }
                       try {
                           RingtoneManager rm = new RingtoneManager(this);
                           rm.setType(t);
@@ -1403,7 +1547,7 @@ jobs:
                               try {
                                   String title = c.moveToPosition(i) ? c.getString(RingtoneManager.TITLE_COLUMN_INDEX) : "";
                                   Uri uri = rm.getRingtoneUri(i);
-                                  if (uri != null) list.add(new String[]{title == null ? "\u672a\u547d\u540d" : title, uri.toString()});
+                                  if (uri != null) list.add(new String[]{title == null ? "\u672a\u547d\u540d" : title, uri.toString(), uri.toString()});
                               } catch (Exception ignored) {}
                           }
                       } catch (Exception ignored) {}
@@ -1444,12 +1588,13 @@ jobs:
                       for (int i = 0; i < data.size(); i++) {
                           final String title = data.get(i)[0];
                           final String uriStr = data.get(i)[1];
+                          final String saveUri = data.get(i).length > 2 ? data.get(i)[2] : uriStr;
                           LinearLayout row = new LinearLayout(this);
                           row.setOrientation(LinearLayout.HORIZONTAL);
                           row.setGravity(Gravity.CENTER_VERTICAL);
                           row.setPadding(14, 16, 14, 16);
                           GradientDrawable rbg = new GradientDrawable();
-                          boolean sel = uriStr.equals(selectedUri[0]);
+                          boolean sel = saveUri.equals(selectedUri[0]);
                           rbg.setColor(Color.rgb(15, 23, 42));
                           rbg.setStroke(sel ? 3 : 1, sel ? Color.rgb(16, 185, 129) : Color.rgb(30, 41, 59));
                           rbg.setCornerRadius(20);
@@ -1494,8 +1639,8 @@ jobs:
                           apply.setBackground(abg);
                           apply.setMinWidth(0); apply.setMinimumWidth(0); apply.setPadding(20, 6, 20, 6);
                           apply.setOnClickListener(v -> {
-                              selectedUri[0] = uriStr;
-                              applyToneToAlarm(currentEditingAlarmIndex, uriStr);
+                              selectedUri[0] = saveUri;
+                              applyToneToAlarm(currentEditingAlarmIndex, saveUri);
                               // \u9ad8\u4eae\u66f4\u65b0
                               for (int k = 0; k < rowViews.size(); k++) {
                                   View rv = rowViews.get(k);
@@ -1512,7 +1657,7 @@ jobs:
                           // \u70b9\u51fb\u6574\u884c\u4e5f\u80fd\u8bd5\u542c
                           row.setOnClickListener(v -> previewRingtoneAt(uriStr));
                           rowViews.add(row);
-                          rowUris.add(uriStr);
+                          rowUris.add(saveUri);
                           list.addView(row);
                       }
                   };
@@ -1548,27 +1693,17 @@ jobs:
                   root.addView(tabRow);
           
                   // \u5934\u90e8\u63d0\u793a
-                  TextView hint = text("\u4ee5\u4e0b\u5217\u8868\u5747\u4e3a\u672c\u673a\u771f\u5b9e\u94c3\u58f0\uff0c\u540d\u79f0\u4e0e\u542c\u5230\u7684\u58f0\u97f3\u4e00\u81f4\u3002\u70b9\u51fb\u201c\u8bd5\u542c\u201d\u9884\u89c8\uff0c\u70b9\u51fb\u201c\u9009\u4e3a\u94c3\u58f0\u201d\u5373\u53ef\u751f\u6548\u3002", 13, Color.rgb(148, 163, 184));
+                  TextView hint = text("\u4ee5\u4e0b\u5217\u8868\u5747\u4e3a\u672c\u673a\u771f\u5b9e\u94c3\u58f0\uff0c\u201c\u7cfb\u7edf\u9ed8\u8ba4\u95f9\u949f\uff08\u9ed8\u8ba4\uff09\u201d\u4e5f\u53ef\u76f4\u63a5\u9009\u4e2d\u3002\u70b9\u51fb\u201c\u8bd5\u542c\u201d\u9884\u89c8\uff0c\u70b9\u51fb\u201c\u9009\u4e3a\u94c3\u58f0\u201d\u5373\u53ef\u751f\u6548\u3002", 13, Color.rgb(148, 163, 184));
                   root.addView(hint);
                   root.addView(list);
                   renderList.run();
           
-                  // \u5e95\u90e8\u4e09\u4e2a\u5feb\u6377\u5165\u53e3\uff08\u7cfb\u7edf\u9009\u62e9\u5668\u3001\u672c\u5730\u97f3\u4e50\u3001\u6062\u590d\u9ed8\u8ba4\uff09
+                  // \u5e95\u90e8\u53ea\u4fdd\u7559\u6062\u590d\u9ed8\u8ba4
                   LinearLayout footer = new LinearLayout(this);
                   footer.setOrientation(LinearLayout.HORIZONTAL);
                   footer.setPadding(0, 16, 0, 0);
-                  Button sysBtn = button("\u7cfb\u7edf\u9009\u62e9\u5668");
-                  Button audBtn = button("\u672c\u5730\u97f3\u4e50");
                   Button defBtn = button("\u6062\u590d\u9ed8\u8ba4");
-                  LinearLayout.LayoutParams flp1 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                  flp1.setMargins(0, 0, 6, 0);
-                  LinearLayout.LayoutParams flp2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                  flp2.setMargins(6, 0, 6, 0);
-                  LinearLayout.LayoutParams flp3 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                  flp3.setMargins(6, 0, 0, 0);
-                  footer.addView(sysBtn, flp1);
-                  footer.addView(audBtn, flp2);
-                  footer.addView(defBtn, flp3);
+                  footer.addView(defBtn, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
                   root.addView(footer);
           
                   android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
@@ -1577,8 +1712,6 @@ jobs:
                       .setNegativeButton("\u5173\u95ed", (d, w) -> stopPreviewRingtone())
                       .setOnDismissListener(d -> stopPreviewRingtone())
                       .create();
-                  sysBtn.setOnClickListener(v -> { stopPreviewRingtone(); dialog.dismiss(); showRingtonePicker(currentEditingAlarmIndex); });
-                  audBtn.setOnClickListener(v -> { stopPreviewRingtone(); dialog.dismiss(); showAudioPicker(currentEditingAlarmIndex); });
                   defBtn.setOnClickListener(v -> { stopPreviewRingtone(); dialog.dismiss(); applyToneToAlarm(currentEditingAlarmIndex, ""); });
                   dialog.show();
               }
@@ -1637,12 +1770,23 @@ jobs:
                   alarmStatusText.setText(sb.toString());
               }
           
-              private long nextAlarmTime(int hour, int minute) {
+              private long nextAlarmTime(int hour, int minute, String repeatDays) {
                   Calendar c = Calendar.getInstance();
                   c.set(Calendar.HOUR_OF_DAY, hour);
                   c.set(Calendar.MINUTE, minute);
                   c.set(Calendar.SECOND, 0);
                   c.set(Calendar.MILLISECOND, 0);
+                  if (repeatDays != null && !repeatDays.trim().isEmpty()) {
+                      long now = System.currentTimeMillis();
+                      for (int d = 0; d <= 7; d++) {
+                          Calendar candidate = (Calendar) c.clone();
+                          candidate.add(Calendar.DAY_OF_MONTH, d);
+                          int dayIndex = (candidate.get(Calendar.DAY_OF_WEEK) + 5) % 7; // 周一=0，周日=6
+                          if (repeatDays.contains(String.valueOf(dayIndex)) && candidate.getTimeInMillis() > now) {
+                              return candidate.getTimeInMillis();
+                          }
+                      }
+                  }
                   if (c.getTimeInMillis() <= System.currentTimeMillis()) c.add(Calendar.DAY_OF_MONTH, 1);
                   return c.getTimeInMillis();
               }
