@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 59
-                  versionName "1.11.5"
+                  versionCode 62
+                  versionName "1.11.8"
               }
           
               compileOptions {
@@ -2299,7 +2299,7 @@ jobs:
                   int start = sortPageIndex * PAGE_SIZE;
                   int end = Math.min(array.length(), start + PAGE_SIZE);
                   boolean virtualMoving = shouldResumeDrag && (sortResumeDragIndex < start || sortResumeDragIndex >= end);
-                  if (virtualMoving && sortResumeDirection > 0) {
+                  if (virtualMoving) {
                       try {
                           JSONObject obj = array.getJSONObject(sortResumeDragIndex);
                           View child = "text".equals(type) ? savedTextCard(sortResumeDragIndex, obj) : linkCard(sortResumeDragIndex, obj);
@@ -2313,14 +2313,6 @@ jobs:
                           View child = "text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj);
                           sortList.addView(child);
                           if (shouldResumeDrag && i == sortResumeDragIndex) resumeView = child;
-                      } catch (Exception ignored) {}
-                  }
-                  if (virtualMoving && sortResumeDirection < 0) {
-                      try {
-                          JSONObject obj = array.getJSONObject(sortResumeDragIndex);
-                          View child = "text".equals(type) ? savedTextCard(sortResumeDragIndex, obj) : linkCard(sortResumeDragIndex, obj);
-                          sortList.addView(child);
-                          resumeView = child;
                       } catch (Exception ignored) {}
                   }
                   sortList.addView(pagerView("\u6392\u5e8f", sortPageIndex, pageCount(array.length()), () -> changeSortPage(-1), () -> changeSortPage(1)));
@@ -3271,7 +3263,7 @@ jobs:
                   if (originPage == targetPage || direction == 0) return moveItemToExactIndex(key, from, to);
                   int targetStart = targetPage * PAGE_SIZE;
                   int targetEnd = Math.min(source.length() - 1, targetStart + PAGE_SIZE - 1);
-                  int boundaryIndex = direction > 0 ? targetStart : targetEnd;
+                  int boundaryIndex = direction > 0 ? targetEnd : targetStart;
                   if (boundaryIndex < 0 || boundaryIndex >= source.length() || boundaryIndex == from) return moveItemToExactIndex(key, from, to);
                   try {
                       JSONObject moving = source.getJSONObject(from);
@@ -3436,25 +3428,43 @@ jobs:
                   disallowParentIntercept(view, true);
                   setSortControlsEnabled(false);
                   view.animate().cancel();
+                  view.setVisibility(View.INVISIBLE);
                   view.setTranslationY(0f);
                   view.setAlpha(0.96f);
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
                   view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
-                  view.post(() -> {
-                      if (sortActiveView != view || !sortDragArmed) return;
-                      int[] loc = new int[2];
-                      view.getLocationOnScreen(loc);
-                      float desiredTranslation = rawY - (loc[1] + view.getHeight() / 2f);
-                      sortDragStartRawY = rawY - desiredTranslation;
-                      sortDragLastRawY = rawY;
-                      view.setTranslationY(desiredTranslation);
-                      LinearLayout p = view.getParent() instanceof LinearLayout ? (LinearLayout) view.getParent() : null;
-                      if (p != null) {
-                          int target2 = computeSortPendingIndex(p, view);
-                          sortDragPendingIndex = target2;
-                          applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
+                  view.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                      @Override
+                      public boolean onPreDraw() {
+                          if (view.getViewTreeObserver().isAlive()) view.getViewTreeObserver().removeOnPreDrawListener(this);
+                          if (sortActiveView != view || !sortDragArmed) return true;
+                          alignSortDragToFinger(view, rawY);
+                          view.setVisibility(View.VISIBLE);
+                          LinearLayout p = view.getParent() instanceof LinearLayout ? (LinearLayout) view.getParent() : null;
+                          if (p != null) {
+                              int target2 = computeSortPendingIndex(p, view);
+                              sortDragPendingIndex = target2;
+                              applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
+                          }
+                          return true;
                       }
                   });
+                  view.postDelayed(() -> {
+                      if (sortActiveView != view || !sortDragArmed || view.getVisibility() == View.VISIBLE) return;
+                      alignSortDragToFinger(view, rawY);
+                      view.setVisibility(View.VISIBLE);
+                  }, 32);
+              }
+          
+              private void alignSortDragToFinger(View view, float rawY) {
+                  if (view == null) return;
+                  int h = view.getHeight() > 0 ? view.getHeight() : dpToPx(58);
+                  int[] loc = new int[2];
+                  view.getLocationOnScreen(loc);
+                  float desiredTranslation = rawY - (loc[1] + h / 2f);
+                  sortDragStartRawY = rawY - desiredTranslation;
+                  sortDragLastRawY = rawY;
+                  view.setTranslationY(desiredTranslation);
               }
           
               private boolean handleSortDragTouch(View moving, MotionEvent event) {
@@ -3558,9 +3568,9 @@ jobs:
                       int childIndex = ((Integer) childTag).intValue();
                       float shift = 0f;
                       if (sortCrossPagePending) {
-                          if (sortResumeDirection > 0 && childIndex >= pageStart && childIndex <= Math.min(toIndex, pageEnd)) {
+                          if (toIndex <= pageStart && childIndex >= pageStart && childIndex <= pageEnd) {
                               shift = sortDragItemHeight;
-                          } else if (sortResumeDirection < 0 && childIndex <= pageEnd && childIndex >= Math.max(toIndex, pageStart)) {
+                          } else if (toIndex > pageStart && childIndex >= pageStart && childIndex < Math.min(toIndex, pageEnd + 1)) {
                               shift = -sortDragItemHeight;
                           }
                       } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
