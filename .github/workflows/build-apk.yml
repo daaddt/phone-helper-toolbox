@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 63
-                  versionName "1.11.9"
+                  versionCode 64
+                  versionName "1.12.0"
               }
           
               compileOptions {
@@ -833,6 +833,7 @@ jobs:
               private float sortDragLastRawY = 0f;
               private float sortDragItemHeight = 0f;
               private View sortActiveView = null;
+              private View sortFloatingView = null;
               private int sortResumeDragIndex = -1;
               private float sortResumeRawY = 0f;
               private int sortResumeDirection = 0;
@@ -2288,6 +2289,11 @@ jobs:
                       sortDragMoved = false;
                       sortActiveView = null;
                   }
+                  // 移除旧的浮动拖拽视图
+                  if (sortFloatingView != null && sortFloatingView.getParent() != null) {
+                      ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
+                  }
+                  sortFloatingView = null;
                   clearSortVisuals(sortList);
                   sortList.removeAllViews();
                   applySortLayoutTransition(sortList, false);
@@ -2299,14 +2305,7 @@ jobs:
                   int start = sortPageIndex * PAGE_SIZE;
                   int end = Math.min(array.length(), start + PAGE_SIZE);
                   boolean virtualMoving = shouldResumeDrag && (sortResumeDragIndex < start || sortResumeDragIndex >= end);
-                  if (virtualMoving) {
-                      try {
-                          JSONObject obj = array.getJSONObject(sortResumeDragIndex);
-                          View child = "text".equals(type) ? savedTextCard(sortResumeDragIndex, obj) : linkCard(sortResumeDragIndex, obj);
-                          sortList.addView(child);
-                          resumeView = child;
-                      } catch (Exception ignored) {}
-                  }
+                  // 目标页只渲染本页原有条目，不包含被拖拽条目
                   for (int i = start; i < end; i++) {
                       try {
                           JSONObject obj = array.getJSONObject(i);
@@ -2317,7 +2316,22 @@ jobs:
                   }
                   sortList.addView(pagerView("\u6392\u5e8f", sortPageIndex, pageCount(array.length()), () -> changeSortPage(-1), () -> changeSortPage(1)));
                   if (shouldResumeDrag && resumeView != null) {
+                      // 同页恢复：直接恢复拖拽
                       resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
+                  } else if (shouldResumeDrag && virtualMoving) {
+                      // 跨页恢复：创建浮动拖拽视图附加到 sortPage，不占 sortList 槽位
+                      try {
+                          JSONObject obj = array.getJSONObject(sortResumeDragIndex);
+                          View floating = "text".equals(type) ? savedTextCard(sortResumeDragIndex, obj) : linkCard(sortResumeDragIndex, obj);
+                          sortFloatingView = floating;
+                          sortPage.addView(floating);
+                          resumeSortDrag(floating, sortResumeDragIndex, sortResumeRawY);
+                      } catch (Exception ignored) {
+                          sortDragging = false;
+                          sortDragArmed = false;
+                          sortDragMoved = false;
+                          sortActiveView = null;
+                      }
                   } else if (shouldResumeDrag) {
                       sortDragging = false;
                       sortDragArmed = false;
@@ -3273,11 +3287,15 @@ jobs:
                           if (i == from || i == boundaryIndex) continue;
                           list.add(source.getJSONObject(i));
                       }
+                      // 计算移除两项后的目标位置
                       int movingTo = to;
-                      if (from < to) movingTo--;
-                      if (boundaryIndex < to) movingTo--;
+                      int removedBefore = 0;
+                      if (from < to) removedBefore++;
+                      if (boundaryIndex < to) removedBefore++;
+                      movingTo = to - removedBefore;
                       movingTo = Math.max(0, Math.min(movingTo, list.size()));
                       list.add(movingTo, moving);
+                      // 边界条目放到原页末尾
                       int originLast = Math.min((originPage + 1) * PAGE_SIZE - 1, list.size());
                       list.add(originLast, boundary);
                       JSONArray result = new JSONArray();
@@ -3515,6 +3533,11 @@ jobs:
                           sortDragPendingIndex = -1;
                           sortDragStartRawY = 0f;
                           sortDragLastRawY = 0f;
+                          // 清理浮动拖拽视图
+                          if (sortFloatingView != null && sortFloatingView.getParent() != null) {
+                              ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
+                          }
+                          sortFloatingView = null;
                           moving.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
                           moving.setAlpha(1f);
                           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) moving.setElevation(6f);
@@ -3571,8 +3594,9 @@ jobs:
                       int childIndex = ((Integer) childTag).intValue();
                       float shift = 0f;
                       if (sortCrossPagePending) {
-                          if (toIndex > pageStart && childIndex >= pageStart && childIndex < Math.min(toIndex, pageEnd + 1)) {
-                              shift = -sortDragItemHeight;
+                          // 跨页模式：浮动条目不在列表中，按插缝位置让目标页条目下移
+                          if (childIndex >= pageStart && childIndex < Math.min(toIndex, pageEnd + 1)) {
+                              shift = sortDragItemHeight;
                           }
                       } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
                       else if (fromIndex > toIndex && childIndex >= toIndex && childIndex < fromIndex) shift = sortDragItemHeight;
