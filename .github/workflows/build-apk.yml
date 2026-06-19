@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 54
-                  versionName "1.11.0"
+                  versionCode 55
+                  versionName "1.11.1"
               }
           
               compileOptions {
@@ -833,6 +833,8 @@ jobs:
               private float sortDragLastRawY = 0f;
               private float sortDragItemHeight = 0f;
               private View sortActiveView = null;
+              private int sortResumeDragIndex = -1;
+              private float sortResumeRawY = 0f;
               private int sortAutoScrollDirection = 0;
               private int sortAutoPageDirection = 0;
               private long sortAutoPageSince = 0L;
@@ -1126,13 +1128,13 @@ jobs:
                   sortPage.setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(8));
                   sortPage.setClipToPadding(false);
                   sortPage.setClipChildren(false);
-                  Button done = button("\u5b8c\u6210\u6392\u5e8f");
-                  sortPage.addView(done);
                   sortList = new LinearLayout(this);
                   sortList.setOrientation(LinearLayout.VERTICAL);
                   sortList.setClipToPadding(false);
                   sortList.setClipChildren(false);
                   sortPage.addView(sortList);
+                  Button done = button("\u5b8c\u6210\u6392\u5e8f");
+                  sortPage.addView(done);
                   done.setOnClickListener(v -> exitSortMode());
               }
           
@@ -2187,15 +2189,16 @@ jobs:
               }
           
               private View savedTextCard(int index, JSONObject obj) {
-                  LinearLayout card = card();
                   String title = obj.optString("title"); String content = obj.optString("content");
-                  card.addView(text(title, 18, Color.WHITE));
-                  card.addView(text(preview(content), 14, Color.LTGRAY));
                   if (isSortMode("texts", "text")) {
+                      LinearLayout card = sortCompactCard(title, preview(content));
                       makeSortDraggable(card, "texts", index, "text");
                       applySortItemVisual(card, index);
                       return card;
                   }
+                  LinearLayout card = card();
+                  card.addView(text(title, 18, Color.WHITE));
+                  card.addView(text(preview(content), 14, Color.LTGRAY));
                   card.setOnLongClickListener(v -> { enterSortMode("texts", "text"); return true; });
                   LinearLayout actions = row();
                   Button copy = button("\u590d\u5236"); Button edit = button("\u7f16\u8f91"); Button delete = button("\u5220\u9664");
@@ -2266,17 +2269,20 @@ jobs:
               private void renderSortPage() {
                   if (sortList == null) return;
                   stopSortAutoScroll();
-                  sortDragging = false;
-                  sortDragArmed = false;
-                  sortDragMoved = false;
-                  sortActiveView = null;
+                  boolean shouldResumeDrag = sortResumeDragIndex >= 0;
+                  View resumeView = null;
+                  if (!shouldResumeDrag) {
+                      sortDragging = false;
+                      sortDragArmed = false;
+                      sortDragMoved = false;
+                      sortActiveView = null;
+                  }
                   clearSortVisuals(sortList);
                   sortList.removeAllViews();
                   applySortLayoutTransition(sortList, false);
                   String key = sortModeKey;
                   String type = sortModeType;
                   if (key.isEmpty() || type.isEmpty()) return;
-                  sortList.addView(sortModeBanner("\u6392\u5e8f"));
                   JSONArray array = loadArray(key);
                   sortPageIndex = clampPage(sortPageIndex, array.length());
                   sortList.addView(pagerView("\u6392\u5e8f", sortPageIndex, pageCount(array.length()), () -> changeSortPage(-1), () -> changeSortPage(1)));
@@ -2285,21 +2291,34 @@ jobs:
                   for (int i = start; i < end; i++) {
                       try {
                           JSONObject obj = array.getJSONObject(i);
-                          sortList.addView("text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj));
+                          View child = "text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj);
+                          sortList.addView(child);
+                          if (shouldResumeDrag && i == sortResumeDragIndex) resumeView = child;
                       } catch (Exception ignored) {}
                   }
+                  if (shouldResumeDrag && resumeView != null) {
+                      resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
+                  } else if (shouldResumeDrag) {
+                      sortDragging = false;
+                      sortDragArmed = false;
+                      sortDragMoved = false;
+                      sortActiveView = null;
+                  }
+                  sortResumeDragIndex = -1;
+                  sortResumeRawY = 0f;
               }
           
               private View linkCard(int index, JSONObject obj) {
-                  LinearLayout card = card();
                   String title = obj.optString("title"); String url = obj.optString("url");
-                  card.addView(text(title, 18, Color.WHITE));
-                  card.addView(text(url, 13, Color.LTGRAY));
                   if (isSortMode("links", "link")) {
+                      LinearLayout card = sortCompactCard(title, url);
                       makeSortDraggable(card, "links", index, "link");
                       applySortItemVisual(card, index);
                       return card;
                   }
+                  LinearLayout card = card();
+                  card.addView(text(title, 18, Color.WHITE));
+                  card.addView(text(url, 13, Color.LTGRAY));
                   card.setOnLongClickListener(v -> { enterSortMode("links", "link"); return true; });
                   LinearLayout actions = row();
                   Button open = button("\u6253\u5f00"); Button copy = button("\u590d\u5236\u7f51\u5740"); Button edit = button("\u7f16\u8f91"); Button delete = button("\u5220\u9664");
@@ -2316,6 +2335,25 @@ jobs:
                   return card;
               }
           
+              private LinearLayout sortCompactCard(String title, String content) {
+                  LinearLayout card = card();
+                  card.setPadding(14, 6, 14, 6);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(58));
+                  lp.setMargins(0, 3, 0, 3);
+                  card.setLayoutParams(lp);
+                  TextView titleView = text(title, 15, Color.WHITE);
+                  titleView.setSingleLine(true);
+                  titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                  titleView.setPadding(0, 0, 0, 1);
+                  TextView contentView = text(content, 12, Color.rgb(203, 213, 225));
+                  contentView.setSingleLine(true);
+                  contentView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                  contentView.setPadding(0, 0, 0, 0);
+                  card.addView(titleView);
+                  card.addView(contentView);
+                  return card;
+              }
+          
               private int pageCount(int total) {
                   return Math.max(1, (total + PAGE_SIZE - 1) / PAGE_SIZE);
               }
@@ -2326,6 +2364,24 @@ jobs:
               }
           
               private View pagerView(String title, int page, int pages, Runnable prevAction, Runnable nextAction) {
+                  if ("\u6392\u5e8f".equals(title)) {
+                      LinearLayout wrap = new LinearLayout(this);
+                      wrap.setOrientation(LinearLayout.HORIZONTAL);
+                      wrap.setGravity(Gravity.CENTER);
+                      wrap.setPadding(0, 0, 0, 2);
+                      Button prev = button("\u4e0a\u9875");
+                      Button next = button("\u4e0b\u9875");
+                      TextView label = text("\u6392\u5e8f " + (page + 1) + "/" + pages + "  \u53ef\u957f\u6309\u62d6\u62fd\u6362\u4f4d", 13, Color.rgb(226, 232, 240));
+                      label.setGravity(Gravity.CENTER);
+                      prev.setEnabled(page > 0);
+                      next.setEnabled(page < pages - 1);
+                      prev.setOnClickListener(v -> { if (page > 0) prevAction.run(); });
+                      next.setOnClickListener(v -> { if (page < pages - 1) nextAction.run(); });
+                      wrap.addView(prev, new LinearLayout.LayoutParams(0, dpToPx(42), 0.9f));
+                      wrap.addView(label, new LinearLayout.LayoutParams(0, dpToPx(42), 1.8f));
+                      wrap.addView(next, new LinearLayout.LayoutParams(0, dpToPx(42), 0.9f));
+                      return wrap;
+                  }
                   LinearLayout wrap = card();
                   TextView label = text(title + "  " + (page + 1) + "/" + pages, 16, Color.rgb(226, 232, 240));
                   label.setGravity(Gravity.CENTER);
@@ -3302,8 +3358,28 @@ jobs:
                   });
               }
           
+              private void resumeSortDrag(View view, int index, float rawY) {
+                  LinearLayout parent = view.getParent() instanceof LinearLayout ? (LinearLayout) view.getParent() : null;
+                  if (parent == null) return;
+                  sortActiveView = view;
+                  sortDragging = true;
+                  sortDragArmed = true;
+                  sortDragMoved = true;
+                  sortDragOriginalIndex = index;
+                  sortDragPendingIndex = index;
+                  sortDragStartRawY = rawY;
+                  sortDragLastRawY = rawY;
+                  sortDragItemHeight = (view.getHeight() > 0 ? view.getHeight() : dpToPx(58)) + dpToPx(6);
+                  disallowParentIntercept(view, true);
+                  view.animate().cancel();
+                  view.setTranslationY(0f);
+                  view.setAlpha(0.96f);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
+                  view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
+              }
+          
               private int computeSortPendingIndex(LinearLayout parent, View moving) {
-                  int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 2 : 1;
+                  int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 1 : 1;
                   int pageStart = isSortMode(sortModeKey, sortModeType) && parent == sortList ? sortPageIndex * PAGE_SIZE : 0;
                   int itemCount = Math.max(0, parent.getChildCount() - headerCount);
                   if (itemCount <= 1) return sortDragOriginalIndex;
@@ -3325,7 +3401,7 @@ jobs:
               }
           
               private void applyDodgeAnimation(LinearLayout parent, View moving, int fromIndex, int toIndex) {
-                  int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 2 : 1;
+                  int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 1 : 1;
                   int pageStart = isSortMode(sortModeKey, sortModeType) && parent == sortList ? sortPageIndex * PAGE_SIZE : 0;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
@@ -3409,11 +3485,11 @@ jobs:
                   int nextPage = clampPage(sortPageIndex + direction, total);
                   if (nextPage == sortPageIndex) { sortAutoPageSince = SystemClock.elapsedRealtime(); return; }
                   int from = sortDragOriginalIndex;
-                  // 顺向（向下一页）放在新页末尾；反向（向上一页）放在新页末尾，使被拖条目位于新页"页底"，
-                  // 这样不会与该页第一条做替换，也不会"卡住"。
-                  boolean toStart = false;
+                  boolean toStart = direction > 0;
+                  int target = nextPage * PAGE_SIZE + (toStart ? 0 : PAGE_SIZE - 1);
+                  target = Math.max(0, Math.min(total - 1, target));
                   stopSortAutoScroll();
-                  // 立即结束本次拖拽会话，避免旧 view 与新 view 状态错位
+                  float rawY = sortDragLastRawY;
                   View active = sortActiveView;
                   if (active != null) {
                       active.animate().cancel();
@@ -3422,22 +3498,15 @@ jobs:
                       active.setScaleX(1f);
                       active.setScaleY(1f);
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) active.setElevation(6f);
-                      disallowParentIntercept(active, false);
                   }
-                  sortDragging = false;
-                  sortDragArmed = false;
-                  sortDragMoved = false;
-                  sortDragOriginalIndex = -1;
-                  sortDragPendingIndex = -1;
-                  sortDragStartRawY = 0f;
-                  sortDragLastRawY = 0f;
-                  sortActiveView = null;
                   sortAutoPageDirection = 0;
                   sortAutoPageSince = 0L;
                   if (moveSortItemAcrossPage(from, nextPage, toStart)) {
                       sortPageIndex = nextPage;
+                      sortResumeDragIndex = target;
+                      sortResumeRawY = rawY;
                       renderSortPage();
-                      showStatus("\u5df2\u81ea\u52a8\u6362\u9875\uff0c\u8bf7\u91cd\u65b0\u957f\u6309\u62d6\u62fd");
+                      showStatus("\u5df2\u81ea\u52a8\u6362\u9875\uff0c\u53ef\u7ee7\u7eed\u62d6\u62fd");
                   } else {
                       renderSortPage();
                   }
