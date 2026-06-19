@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 41
-                  versionName "1.9.7"
+                  versionCode 42
+                  versionName "1.9.8"
               }
           
               compileOptions {
@@ -726,6 +726,7 @@ jobs:
           import android.provider.Settings;
           import android.text.InputType;
           import android.view.Gravity;
+          import android.view.MotionEvent;
           import android.view.View;
           import android.view.WindowManager;
           import android.view.inputmethod.InputMethodManager;
@@ -813,6 +814,10 @@ jobs:
               private int streamingAssistantIndex = -1;
               private int editingTextIndex = -1;
               private int editingLinkIndex = -1;
+              private String sortModeKey = "";
+              private String sortModeType = "";
+              private float sortSwipeStartX = 0f;
+              private float sortSwipeStartY = 0f;
               private long lastBackPressedAt = 0;
           
               private final Runnable tick = new Runnable() {
@@ -2126,6 +2131,8 @@ jobs:
               private void renderSavedTexts() {
                   if (savedTextList == null) return;
                   savedTextList.removeAllViews();
+                  attachSortSwipeExit(savedTextList, "texts", "text");
+                  if (isSortMode("texts", "text")) savedTextList.addView(sortModeBanner("\u5e38\u7528\u6587\u672c"));
                   JSONArray array = loadArray("texts");
                   for (int i = 0; i < array.length(); i++) {
                       try { savedTextList.addView(savedTextCard(i, array.getJSONObject(i))); } catch (Exception ignored) {}
@@ -2138,6 +2145,13 @@ jobs:
                   String title = obj.optString("title"); String content = obj.optString("content");
                   card.addView(text(title, 18, Color.WHITE));
                   card.addView(text(preview(content), 14, Color.LTGRAY));
+                  if (isSortMode("texts", "text")) {
+                      card.addView(sortModeHintText());
+                      attachSortSwipeExit(card, "texts", "text");
+                      makeSortDraggable(card, "texts", index, "text");
+                      return card;
+                  }
+                  card.setOnLongClickListener(v -> { enterSortMode("texts", "text"); return true; });
                   LinearLayout actions = row();
                   Button copy = button("\u590d\u5236"); Button edit = button("\u7f16\u8f91"); Button delete = button("\u5220\u9664");
                   copy.setOnClickListener(v -> copyText(title, content));
@@ -2149,7 +2163,6 @@ jobs:
                   });
                   actions.addView(copy, weight()); actions.addView(edit, weight()); actions.addView(delete, weight());
                   card.addView(actions);
-                  card.addView(dragHandle("texts", index, "text"));
                   return card;
               }
           
@@ -2192,6 +2205,8 @@ jobs:
               private void renderLinks() {
                   if (linkList == null) return;
                   linkList.removeAllViews();
+                  attachSortSwipeExit(linkList, "links", "link");
+                  if (isSortMode("links", "link")) linkList.addView(sortModeBanner("\u5feb\u6377\u94fe\u63a5"));
                   JSONArray array = loadArray("links");
                   for (int i = 0; i < array.length(); i++) {
                       try { linkList.addView(linkCard(i, array.getJSONObject(i))); } catch (Exception ignored) {}
@@ -2204,6 +2219,13 @@ jobs:
                   String title = obj.optString("title"); String url = obj.optString("url");
                   card.addView(text(title, 18, Color.WHITE));
                   card.addView(text(url, 13, Color.LTGRAY));
+                  if (isSortMode("links", "link")) {
+                      card.addView(sortModeHintText());
+                      attachSortSwipeExit(card, "links", "link");
+                      makeSortDraggable(card, "links", index, "link");
+                      return card;
+                  }
+                  card.setOnLongClickListener(v -> { enterSortMode("links", "link"); return true; });
                   LinearLayout actions = row();
                   Button open = button("\u6253\u5f00"); Button copy = button("\u590d\u5236\u7f51\u5740"); Button edit = button("\u7f16\u8f91"); Button delete = button("\u5220\u9664");
                   open.setOnClickListener(v -> openUrl(url));
@@ -2216,7 +2238,6 @@ jobs:
                   });
                   actions.addView(open, weight()); actions.addView(copy, weight()); actions.addView(edit, weight()); actions.addView(delete, weight());
                   card.addView(actions);
-                  card.addView(dragHandle("links", index, "link"));
                   return card;
               }
           
@@ -2974,34 +2995,88 @@ jobs:
                           if (i == to && from < to) result.put(moving);
                       }
                       saveArray(key, result);
-                      if ("text".equals(type)) { renderSavedTexts(); showStatus("\u5df2\u8c03\u6574\u5e38\u7528\u6587\u672c\u987a\u5e8f"); }
-                      else { renderLinks(); showStatus("\u5df2\u8c03\u6574\u5feb\u6377\u94fe\u63a5\u987a\u5e8f"); }
+                      boolean sorting = isSortMode(key, type);
+                      if ("text".equals(type)) { renderSavedTexts(); if (!sorting) showStatus("\u5df2\u8c03\u6574\u5e38\u7528\u6587\u672c\u987a\u5e8f"); }
+                      else { renderLinks(); if (!sorting) showStatus("\u5df2\u8c03\u6574\u5feb\u6377\u94fe\u63a5\u987a\u5e8f"); }
                   } catch (Exception ignored) {}
               }
           
-              private TextView dragHandle(String key, int index, String type) {
-                  TextView handle = text("\u957f\u6309\u62d6\u62fd\u6392\u5e8f  \u2630", 13, Color.rgb(125, 211, 252));
-                  handle.setGravity(Gravity.RIGHT);
-                  handle.setPadding(12, 10, 4, 2);
-                  handle.setOnLongClickListener(v -> {
-                      if ("text".equals(type) && editingTextIndex >= 0) { showStatus("\u8bf7\u5148\u4fdd\u5b58\u6216\u53d6\u6d88\u7f16\u8f91"); return true; }
-                      if ("link".equals(type) && editingLinkIndex >= 0) { showStatus("\u8bf7\u5148\u4fdd\u5b58\u6216\u53d6\u6d88\u7f16\u8f91"); return true; }
+              private boolean isSortMode(String key, String type) {
+                  return key.equals(sortModeKey) && type.equals(sortModeType);
+              }
+          
+              private void enterSortMode(String key, String type) {
+                  if ("text".equals(type) && editingTextIndex >= 0) { showStatus("\u8bf7\u5148\u4fdd\u5b58\u6216\u53d6\u6d88\u7f16\u8f91"); return; }
+                  if ("link".equals(type) && editingLinkIndex >= 0) { showStatus("\u8bf7\u5148\u4fdd\u5b58\u6216\u53d6\u6d88\u7f16\u8f91"); return; }
+                  sortModeKey = key;
+                  sortModeType = type;
+                  if ("text".equals(type)) renderSavedTexts(); else renderLinks();
+                  showStatus("\u5df2\u8fdb\u5165\u6392\u5e8f\u6a21\u5f0f\uff1a\u957f\u6309\u4efb\u4e00\u6761\u76ee\u62d6\u52a8\uff0c\u5de6\u6ed1\u6216\u53f3\u6ed1\u9000\u51fa");
+              }
+          
+              private void exitSortMode() {
+                  if (sortModeKey.isEmpty()) return;
+                  String type = sortModeType;
+                  sortModeKey = "";
+                  sortModeType = "";
+                  sortSwipeStartX = 0f;
+                  sortSwipeStartY = 0f;
+                  if ("text".equals(type)) renderSavedTexts(); else renderLinks();
+                  showStatus("\u6392\u5e8f\u5df2\u4fdd\u5b58");
+              }
+          
+              private TextView sortModeBanner(String title) {
+                  TextView tv = text(title + "\u6392\u5e8f\u4e2d\uff1a\u957f\u6309\u4efb\u4e00\u6761\u76ee\u62d6\u52a8\uff0c\u5de6\u6ed1\u6216\u53f3\u6ed1\u9000\u51fa", 13, Color.rgb(125, 211, 252));
+                  tv.setGravity(Gravity.CENTER);
+                  tv.setPadding(16, 14, 16, 14);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(Color.rgb(12, 25, 42));
+                  bg.setStroke(1, Color.rgb(56, 189, 248));
+                  bg.setCornerRadius(20);
+                  tv.setBackground(bg);
+                  return tv;
+              }
+          
+              private TextView sortModeHintText() {
+                  TextView hint = text("\u957f\u6309\u6b64\u6761\u62d6\u52a8  \u2630", 13, Color.rgb(125, 211, 252));
+                  hint.setGravity(Gravity.RIGHT);
+                  hint.setPadding(0, 8, 0, 0);
+                  return hint;
+              }
+          
+              private void makeSortDraggable(View target, String key, int index, String type) {
+                  target.setOnLongClickListener(v -> {
                       ClipData data = ClipData.newPlainText("phone_helper_sort", key + ":" + index + ":" + type);
-                      v.setAlpha(0.45f);
+                      v.setAlpha(0.55f);
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) v.startDragAndDrop(data, new View.DragShadowBuilder(v), v, 0);
                       else v.startDrag(data, new View.DragShadowBuilder(v), v, 0);
-                      showStatus("\u62d6\u5230\u76ee\u6807\u4f4d\u7f6e\u540e\u677e\u624b");
                       return true;
                   });
-                  handle.setOnDragListener((v, event) -> {
-                      if (event.getAction() == android.view.DragEvent.ACTION_DRAG_ENDED) v.setAlpha(1f);
-                      return true;
+              }
+          
+              private void attachSortSwipeExit(View target, String key, String type) {
+                  target.setOnTouchListener((v, event) -> {
+                      if (!isSortMode(key, type)) return false;
+                      if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                          sortSwipeStartX = event.getX();
+                          sortSwipeStartY = event.getY();
+                          return false;
+                      }
+                      if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                          float dx = event.getX() - sortSwipeStartX;
+                          float dy = event.getY() - sortSwipeStartY;
+                          if (Math.abs(dx) > 150 && Math.abs(dx) > Math.abs(dy) * 1.4f) {
+                              exitSortMode();
+                              return true;
+                          }
+                      }
+                      return false;
                   });
-                  return handle;
               }
           
               private void attachSortDropTarget(View target, String key, int targetIndex, String type) {
                   target.setOnDragListener((v, event) -> {
+                      if (!isSortMode(key, type)) return false;
                       switch (event.getAction()) {
                           case android.view.DragEvent.ACTION_DRAG_ENTERED:
                               v.setAlpha(0.78f);
