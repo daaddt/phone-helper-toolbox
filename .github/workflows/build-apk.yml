@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 45
-                  versionName "1.10.1"
+                  versionCode 46
+                  versionName "1.10.2"
               }
           
               compileOptions {
@@ -701,6 +701,7 @@ jobs:
           cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/MainActivity.java
           package com.trae.phonehelper;
           
+          import android.animation.LayoutTransition;
           import android.Manifest;
           import android.app.Activity;
           import android.app.AlarmManager;
@@ -2136,6 +2137,7 @@ jobs:
                   if (savedTextList == null) return;
                   clearSortVisuals(savedTextList);
                   savedTextList.removeAllViews();
+                  applySortLayoutTransition(savedTextList, isSortMode("texts", "text"));
                   if (isSortMode("texts", "text")) savedTextList.addView(sortModeBanner("\u5e38\u7528\u6587\u672c"));
                   JSONArray array = loadArray("texts");
                   for (int i = 0; i < array.length(); i++) {
@@ -2208,6 +2210,7 @@ jobs:
                   if (linkList == null) return;
                   clearSortVisuals(linkList);
                   linkList.removeAllViews();
+                  applySortLayoutTransition(linkList, isSortMode("links", "link"));
                   if (isSortMode("links", "link")) linkList.addView(sortModeBanner("\u5feb\u6377\u94fe\u63a5"));
                   JSONArray array = loadArray("links");
                   for (int i = 0; i < array.length(); i++) {
@@ -3074,10 +3077,11 @@ jobs:
                       switch (event.getAction()) {
                           case MotionEvent.ACTION_DOWN:
                               sortDragging = true;
-                              sortDragCurrentIndex = index;
+                              sortDragCurrentIndex = Math.max(0, parent.indexOfChild(v) - 1);
                               sortDragStartRawY = event.getRawY();
                               v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                               v.setAlpha(0.92f);
+                              v.bringToFront();
                               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) v.setElevation(12f);
                               return true;
                           case MotionEvent.ACTION_MOVE:
@@ -3089,6 +3093,7 @@ jobs:
                                   if (moveItemSilently(key, sortDragCurrentIndex, targetIndex)) {
                                       parent.removeView(v);
                                       parent.addView(v, Math.min(parent.getChildCount(), targetIndex + 1));
+                                      v.bringToFront();
                                       sortDragCurrentIndex = targetIndex;
                                       sortDragStartRawY = event.getRawY();
                                       v.setTranslationY(0f);
@@ -3120,6 +3125,17 @@ jobs:
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) target.setElevation(6f);
               }
           
+              private void applySortLayoutTransition(LinearLayout parent, boolean enabled) {
+                  if (parent == null) return;
+                  if (!enabled) { parent.setLayoutTransition(null); return; }
+                  LayoutTransition lt = new LayoutTransition();
+                  lt.setDuration(115);
+                  lt.enableTransitionType(LayoutTransition.CHANGING);
+                  lt.enableTransitionType(LayoutTransition.CHANGE_APPEARING);
+                  lt.enableTransitionType(LayoutTransition.CHANGE_DISAPPEARING);
+                  parent.setLayoutTransition(lt);
+              }
+          
               private void attachSortSwipeExit(View target, String key, String type) {
                   target.setOnTouchListener((v, event) -> {
                       if (!isSortMode(key, type)) return false;
@@ -3149,19 +3165,18 @@ jobs:
               }
           
               private int findSortTargetIndex(LinearLayout parent, View moving, float rawY) {
-                  int currentChild = parent.indexOfChild(moving);
-                  int result = sortDragCurrentIndex;
+                  int itemCount = Math.max(0, parent.getChildCount() - 1);
+                  if (itemCount <= 1) return sortDragCurrentIndex;
+                  int result = 0;
                   for (int i = 1; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
                       if (child == moving) continue;
                       int[] loc = new int[2];
                       child.getLocationOnScreen(loc);
                       float centerY = loc[1] + child.getHeight() / 2f;
-                      int itemIndex = i - 1;
-                      if (i < currentChild && rawY < centerY) { result = itemIndex; break; }
-                      if (i > currentChild && rawY > centerY) result = itemIndex;
+                      if (rawY > centerY) result++;
                   }
-                  return result;
+                  return Math.max(0, Math.min(itemCount - 1, result));
               }
           
               private String preview(String value) { String cleaned = value.trim(); return cleaned.length() <= 120 ? cleaned : cleaned.substring(0, 120) + "..."; }
