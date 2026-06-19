@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 40
-                  versionName "1.9.6"
+                  versionCode 41
+                  versionName "1.9.7"
               }
           
               compileOptions {
@@ -955,7 +955,7 @@ jobs:
                   rootScroll.setBackgroundColor(Color.rgb(10, 15, 25));
                   rootContainer = new LinearLayout(this);
                   rootContainer.setOrientation(LinearLayout.VERTICAL);
-                  rootContainer.setPadding(22, 86, 22, rootBaseBottomPadding);
+                  rootContainer.setPadding(22, 126, 22, rootBaseBottomPadding);
                   rootScroll.addView(rootContainer);
           
                   statusText = text("", 14, Color.rgb(125, 211, 252));
@@ -987,6 +987,7 @@ jobs:
                   TextView homeTitle = text("\u624b\u673a\u52a9\u624b\u5de5\u5177\u7bb1", 28, Color.WHITE);
                   homeTitle.setTypeface(Typeface.DEFAULT_BOLD);
                   homeTitle.setGravity(Gravity.CENTER_HORIZONTAL);
+                  homeTitle.setPadding(0, 10, 0, 8);
                   homePage.addView(homeTitle);
                   TextView homeTip = text("\u9009\u62e9\u4e00\u4e2a\u5de5\u5177", 14, Color.rgb(156, 163, 175));
                   homeTip.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -1022,6 +1023,7 @@ jobs:
               private void buildSplitPage() {
                   splitPage.addView(sectionTitle("\u957f\u6587\u672c\u5206\u6bb5\u590d\u5236"));
                   splitPage.addView(infoCard("\u628a\u5f88\u957f\u7684\u4ee3\u7801\u3001\u5de5\u4f5c\u6d41\u3001\u63d0\u793a\u8bcd\u7c98\u5230\u8fd9\u91cc\uff0cApp \u4f1a\u81ea\u52a8\u5206\u6bb5\uff0c\u6bcf\u6bb5\u90fd\u6709\u590d\u5236\u6309\u94ae\u3002"));
+                  splitPage.addView(pageComfortHint("\u9002\u5408\u5904\u7406\u8d85\u957f\u4ee3\u7801\u3001\u63d0\u793a\u8bcd\u6216\u6587\u6863\u5185\u5bb9\uff0c\u8f93\u5165\u540e\u4e00\u952e\u751f\u6210\u53ef\u5206\u6bb5\u590d\u5236\u7684\u5361\u7247\u3002"));
                   longTextInput = inputBox("\u7c98\u8d34\u957f\u6587\u672c");
                   longTextInput.setMinLines(8);
                   longTextInput.setGravity(Gravity.TOP);
@@ -1090,6 +1092,7 @@ jobs:
               private void buildTimerPage() {
                   timerPage.addView(sectionTitle("\u8ba1\u65f6\u5668"));
                   timerPage.addView(infoCard("\u5305\u542b\u6b63\u8ba1\u65f6\u3001\u5012\u8ba1\u65f6\u548c\u5feb\u901f\u5012\u8ba1\u65f6\u3002\u9002\u5408\u4e34\u65f6\u8ba1\u65f6\uff0c\u4e0d\u66ff\u4ee3\u95f9\u949f\u3002"));
+                  timerPage.addView(pageComfortHint("\u4e13\u6ce8\u4e8e\u7b80\u5355\u3001\u6e05\u6670\u7684\u65f6\u95f4\u8ddf\u8e2a\uff0c\u53ef\u5207\u6362\u6b63\u8ba1\u65f6\u6216\u5012\u8ba1\u65f6\u3002"));
                   LinearLayout modeRow = row();
                   stopwatchTab = button("\u6b63\u8ba1\u65f6");
                   countdownTab = button("\u5012\u8ba1\u65f6");
@@ -1097,7 +1100,7 @@ jobs:
                   timerPage.addView(modeRow);
                   timerDisplay = text("00:00.0", 56, Color.WHITE);
                   timerDisplay.setGravity(Gravity.CENTER);
-                  timerDisplay.setPadding(0, 28, 0, 20);
+                  timerDisplay.setPadding(0, 34, 0, 26);
                   timerPage.addView(timerDisplay);
                   LinearLayout edit = row();
                   timerMinuteInput = inputBox("\u5206\u949f");
@@ -1134,11 +1137,13 @@ jobs:
               private void buildPomoPage() {
                   pomoPage.addView(sectionTitle("\u756a\u8304\u949f"));
                   pomoPage.addView(infoCard("\u9ed8\u8ba4\u4e13\u6ce8 25 \u5206\u949f\u3001\u4f11\u606f 5 \u5206\u949f\u3002\u9002\u5408\u5b66\u4e60\u8282\u594f\u7ba1\u7406\u3002"));
+                  pomoPage.addView(pageComfortHint("\u9875\u9762\u4fdd\u6301\u7b80\u6d01\uff0c\u628a\u6ce8\u610f\u529b\u653e\u5728\u5f53\u524d\u4e00\u8f6e\u4e13\u6ce8\u548c\u4f11\u606f\u8282\u594f\u4e0a\u3002"));
                   pomoStateText = text("\u51c6\u5907\u5f00\u59cb\u4e13\u6ce8", 18, Color.rgb(125, 211, 252));
                   pomoStateText.setGravity(Gravity.CENTER);
                   pomoPage.addView(pomoStateText);
                   pomoDisplay = text("25:00", 60, Color.WHITE);
                   pomoDisplay.setGravity(Gravity.CENTER);
+                  pomoDisplay.setPadding(0, 26, 0, 22);
                   pomoPage.addView(pomoDisplay);
                   pomoCountText = text("\u4eca\u65e5\u5b8c\u6210 0 \u4e2a\u756a\u8304", 16, Color.rgb(52, 211, 153));
                   pomoCountText.setGravity(Gravity.CENTER);
@@ -1957,6 +1962,7 @@ jobs:
               private void buildBackupPage() {
                   backupPage.addView(sectionTitle("\u6570\u636e\u5907\u4efd"));
                   backupPage.addView(infoCard("\u5bfc\u51fa\u548c\u5bfc\u5165\u5e38\u7528\u6587\u672c\u3001\u5feb\u6377\u94fe\u63a5\u3002\u4e0d\u4f1a\u5bfc\u51fa AI Key\uff0c\u907f\u514d\u5bc6\u94a5\u6cc4\u9732\u3002"));
+                  backupPage.addView(pageComfortHint("\u5efa\u8bae\u5b9a\u671f\u5bfc\u51fa\u5907\u4efd\u3002\u8be5\u9875\u4fdd\u7559\u8f83\u5c11\u64cd\u4f5c\uff0c\u56e0\u6b64\u5df2\u4f7f\u7528\u66f4\u5bbd\u677e\u7684\u5361\u7247\u95f4\u8ddd\u548c\u8bf4\u660e\u533a\u3002"));
                   LinearLayout actions = row();
                   Button export = button("\u5bfc\u51fa\u5907\u4efd");
                   Button importBackup = button("\u5bfc\u5165\u5907\u4efd");
@@ -3068,6 +3074,22 @@ jobs:
                   GradientDrawable bg = new GradientDrawable();
                   bg.setColor(Color.rgb(15, 23, 42)); bg.setStroke(1, Color.rgb(38, 52, 73)); bg.setCornerRadius(22);
                   tv.setBackground(bg); tv.setPadding(18, 16, 18, 16); tv.setLineSpacing(3, 1.05f); return tv;
+              }
+          
+              private TextView pageComfortHint(String value) {
+                  TextView tv = text(value, 13, Color.rgb(148, 163, 184));
+                  tv.setGravity(Gravity.CENTER);
+                  tv.setLineSpacing(3, 1.05f);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(Color.rgb(12, 18, 30));
+                  bg.setStroke(1, Color.rgb(30, 41, 59));
+                  bg.setCornerRadius(20);
+                  tv.setBackground(bg);
+                  tv.setPadding(18, 14, 18, 14);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  lp.setMargins(0, 12, 0, 12);
+                  tv.setLayoutParams(lp);
+                  return tv;
               }
           
               private Button button(String value) {
