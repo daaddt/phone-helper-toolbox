@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 43
-                  versionName "1.9.9"
+                  versionCode 45
+                  versionName "1.10.1"
               }
           
               compileOptions {
@@ -729,8 +729,6 @@ jobs:
           import android.view.MotionEvent;
           import android.view.View;
           import android.view.WindowManager;
-          import android.view.animation.Animation;
-          import android.view.animation.TranslateAnimation;
           import android.view.inputmethod.InputMethodManager;
           import android.widget.Button;
           import android.widget.CheckBox;
@@ -822,6 +820,8 @@ jobs:
               private float sortSwipeStartY = 0f;
               private long sortModeEnteredAt = 0L;
               private boolean sortDragging = false;
+              private int sortDragCurrentIndex = -1;
+              private float sortDragStartRawY = 0f;
               private long lastBackPressedAt = 0;
           
               private final Runnable tick = new Runnable() {
@@ -2134,8 +2134,8 @@ jobs:
           
               private void renderSavedTexts() {
                   if (savedTextList == null) return;
+                  clearSortVisuals(savedTextList);
                   savedTextList.removeAllViews();
-                  attachSortSwipeExit(savedTextList, "texts", "text");
                   if (isSortMode("texts", "text")) savedTextList.addView(sortModeBanner("\u5e38\u7528\u6587\u672c"));
                   JSONArray array = loadArray("texts");
                   for (int i = 0; i < array.length(); i++) {
@@ -2145,7 +2145,6 @@ jobs:
           
               private View savedTextCard(int index, JSONObject obj) {
                   LinearLayout card = card();
-                  attachSortDropTarget(card, "texts", index, "text");
                   String title = obj.optString("title"); String content = obj.optString("content");
                   card.addView(text(title, 18, Color.WHITE));
                   card.addView(text(preview(content), 14, Color.LTGRAY));
@@ -2207,8 +2206,8 @@ jobs:
           
               private void renderLinks() {
                   if (linkList == null) return;
+                  clearSortVisuals(linkList);
                   linkList.removeAllViews();
-                  attachSortSwipeExit(linkList, "links", "link");
                   if (isSortMode("links", "link")) linkList.addView(sortModeBanner("\u5feb\u6377\u94fe\u63a5"));
                   JSONArray array = loadArray("links");
                   for (int i = 0; i < array.length(); i++) {
@@ -2218,7 +2217,6 @@ jobs:
           
               private View linkCard(int index, JSONObject obj) {
                   LinearLayout card = card();
-                  attachSortDropTarget(card, "links", index, "link");
                   String title = obj.optString("title"); String url = obj.optString("url");
                   card.addView(text(title, 18, Color.WHITE));
                   card.addView(text(url, 13, Color.LTGRAY));
@@ -3004,6 +3002,23 @@ jobs:
                   } catch (Exception ignored) {}
               }
           
+              private boolean moveItemSilently(String key, int from, int to) {
+                  JSONArray source = loadArray(key);
+                  if (from < 0 || to < 0 || from >= source.length() || to >= source.length() || from == to) return false;
+                  JSONArray result = new JSONArray();
+                  try {
+                      JSONObject moving = source.getJSONObject(from);
+                      for (int i = 0; i < source.length(); i++) {
+                          if (i == from) continue;
+                          if (i == to && from > to) result.put(moving);
+                          result.put(source.getJSONObject(i));
+                          if (i == to && from < to) result.put(moving);
+                      }
+                      saveArray(key, result);
+                      return true;
+                  } catch (Exception ignored) { return false; }
+              }
+          
               private boolean isSortMode(String key, String type) {
                   return key.equals(sortModeKey) && type.equals(sortModeType);
               }
@@ -3015,10 +3030,12 @@ jobs:
                   sortModeType = type;
                   sortModeEnteredAt = SystemClock.elapsedRealtime();
                   sortDragging = false;
+                  sortDragCurrentIndex = -1;
+                  sortDragStartRawY = 0f;
                   sortSwipeStartX = 0f;
                   sortSwipeStartY = 0f;
                   if ("text".equals(type)) renderSavedTexts(); else renderLinks();
-                  showStatus("\u5df2\u8fdb\u5165\u6392\u5e8f\u6a21\u5f0f\uff1a\u957f\u6309\u4efb\u4e00\u6761\u76ee\u62d6\u52a8\uff0c\u5de6\u6ed1\u6216\u53f3\u6ed1\u9000\u51fa");
+                  showStatus("\u5df2\u8fdb\u5165\u6392\u5e8f\u6a21\u5f0f\uff1a\u6309\u4f4f\u6761\u76ee\u4e0a\u4e0b\u79fb\u52a8\uff0c\u5de6\u6ed1\u6216\u53f3\u6ed1\u9000\u51fa");
               }
           
               private void exitSortMode() {
@@ -3030,12 +3047,14 @@ jobs:
                   sortSwipeStartY = 0f;
                   sortModeEnteredAt = 0L;
                   sortDragging = false;
+                  sortDragCurrentIndex = -1;
+                  sortDragStartRawY = 0f;
                   if ("text".equals(type)) renderSavedTexts(); else renderLinks();
                   showStatus("\u6392\u5e8f\u5df2\u4fdd\u5b58");
               }
           
               private TextView sortModeBanner(String title) {
-                  TextView tv = text(title + "\u6392\u5e8f\u4e2d\uff1a\u957f\u6309\u4efb\u4e00\u6761\u76ee\u62d6\u52a8\uff0c\u5de6\u6ed1\u6216\u53f3\u6ed1\u9000\u51fa", 13, Color.rgb(125, 211, 252));
+                  TextView tv = text(title + "\u6392\u5e8f\u4e2d\uff1a\u6309\u4f4f\u6761\u76ee\u4e0a\u4e0b\u79fb\u52a8\uff0c\u5176\u4ed6\u6761\u76ee\u4f1a\u88ab\u6324\u5f00\uff1b\u5de6\u6ed1\u6216\u53f3\u6ed1\u9000\u51fa", 13, Color.rgb(125, 211, 252));
                   tv.setGravity(Gravity.CENTER);
                   tv.setPadding(16, 14, 16, 14);
                   GradientDrawable bg = new GradientDrawable();
@@ -3043,41 +3062,72 @@ jobs:
                   bg.setStroke(1, Color.rgb(56, 189, 248));
                   bg.setCornerRadius(20);
                   tv.setBackground(bg);
+                  attachSortSwipeExit(tv, sortModeKey, sortModeType);
                   return tv;
               }
           
               private void makeSortDraggable(View target, String key, int index, String type) {
-                  target.setOnLongClickListener(v -> {
-                      sortDragging = true;
-                      ClipData data = ClipData.newPlainText("phone_helper_sort", key + ":" + index + ":" + type);
-                      v.setAlpha(0.55f);
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) v.startDragAndDrop(data, new View.DragShadowBuilder(v), v, 0);
-                      else v.startDrag(data, new View.DragShadowBuilder(v), v, 0);
+                  target.setOnTouchListener((v, event) -> {
+                      if (!isSortMode(key, type)) return false;
+                      LinearLayout parent = v.getParent() instanceof LinearLayout ? (LinearLayout) v.getParent() : null;
+                      if (parent == null) return false;
+                      switch (event.getAction()) {
+                          case MotionEvent.ACTION_DOWN:
+                              sortDragging = true;
+                              sortDragCurrentIndex = index;
+                              sortDragStartRawY = event.getRawY();
+                              v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                              v.setAlpha(0.92f);
+                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) v.setElevation(12f);
+                              return true;
+                          case MotionEvent.ACTION_MOVE:
+                              if (!sortDragging) return true;
+                              float dy = event.getRawY() - sortDragStartRawY;
+                              v.setTranslationY(dy);
+                              int targetIndex = findSortTargetIndex(parent, v, event.getRawY());
+                              if (targetIndex >= 0 && targetIndex != sortDragCurrentIndex) {
+                                  if (moveItemSilently(key, sortDragCurrentIndex, targetIndex)) {
+                                      parent.removeView(v);
+                                      parent.addView(v, Math.min(parent.getChildCount(), targetIndex + 1));
+                                      sortDragCurrentIndex = targetIndex;
+                                      sortDragStartRawY = event.getRawY();
+                                      v.setTranslationY(0f);
+                                      v.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+                                  }
+                              }
+                              return true;
+                          case MotionEvent.ACTION_UP:
+                          case MotionEvent.ACTION_CANCEL:
+                              sortDragging = false;
+                              sortDragCurrentIndex = -1;
+                              sortDragStartRawY = 0f;
+                              v.setTranslationY(0f);
+                              v.setAlpha(1f);
+                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) v.setElevation(6f);
+                              return true;
+                      }
                       return true;
                   });
               }
           
               private void applySortItemVisual(View target, int index) {
-                  target.setScaleX(1.025f);
-                  target.setScaleY(1.025f);
-                  try {
-                      TranslateAnimation shake = new TranslateAnimation(-2f, 2f, 0f, 0f);
-                      shake.setDuration(90);
-                      shake.setRepeatCount(Animation.INFINITE);
-                      shake.setRepeatMode(Animation.REVERSE);
-                      shake.setStartOffset((index % 3) * 45L);
-                      target.startAnimation(shake);
-                  } catch (Exception ignored) {}
+                  target.clearAnimation();
+                  target.setScaleX(1f);
+                  target.setScaleY(1f);
+                  target.setTranslationX(0f);
+                  target.setTranslationY(0f);
+                  target.setAlpha(1f);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) target.setElevation(6f);
               }
           
               private void attachSortSwipeExit(View target, String key, String type) {
                   target.setOnTouchListener((v, event) -> {
                       if (!isSortMode(key, type)) return false;
-                      if (sortDragging) return true;
+                      if (sortDragging) return false;
                       if (event.getAction() == MotionEvent.ACTION_DOWN) {
                           sortSwipeStartX = event.getX();
                           sortSwipeStartY = event.getY();
-                          return true;
+                          return false;
                       }
                       if (event.getAction() == MotionEvent.ACTION_MOVE) {
                           float dx = event.getX() - sortSwipeStartX;
@@ -3092,52 +3142,36 @@ jobs:
                               exitSortMode();
                               return true;
                           }
-                          return true;
+                          return false;
                       }
                       return false;
                   });
               }
           
-              private void attachSortDropTarget(View target, String key, int targetIndex, String type) {
-                  target.setOnDragListener((v, event) -> {
-                      if (!isSortMode(key, type)) return false;
-                      switch (event.getAction()) {
-                          case android.view.DragEvent.ACTION_DRAG_STARTED:
-                              sortDragging = true;
-                              return true;
-                          case android.view.DragEvent.ACTION_DRAG_ENTERED:
-                              v.setAlpha(0.78f);
-                              return true;
-                          case android.view.DragEvent.ACTION_DRAG_EXITED:
-                              v.setAlpha(1f);
-                              return true;
-                          case android.view.DragEvent.ACTION_DRAG_ENDED:
-                              sortDragging = false;
-                              v.setAlpha(1f);
-                              return true;
-                          case android.view.DragEvent.ACTION_DROP:
-                              v.setAlpha(1f);
-                              try {
-                                  ClipData data = event.getClipData();
-                                  if (data == null || data.getItemCount() == 0) return true;
-                                  String raw = String.valueOf(data.getItemAt(0).getText());
-                                  String[] parts = raw.split(":");
-                                  if (parts.length < 3) return true;
-                                  String dragKey = parts[0];
-                                  int from = parseInt(parts[1], -1);
-                                  String dragType = parts[2];
-                                  if (!key.equals(dragKey) || !type.equals(dragType) || from < 0 || from == targetIndex) return true;
-                                  moveItem(key, from, targetIndex, type);
-                              } catch (Exception ignored) {}
-                              return true;
-                      }
-                      return true;
-                  });
+              private int findSortTargetIndex(LinearLayout parent, View moving, float rawY) {
+                  int currentChild = parent.indexOfChild(moving);
+                  int result = sortDragCurrentIndex;
+                  for (int i = 1; i < parent.getChildCount(); i++) {
+                      View child = parent.getChildAt(i);
+                      if (child == moving) continue;
+                      int[] loc = new int[2];
+                      child.getLocationOnScreen(loc);
+                      float centerY = loc[1] + child.getHeight() / 2f;
+                      int itemIndex = i - 1;
+                      if (i < currentChild && rawY < centerY) { result = itemIndex; break; }
+                      if (i > currentChild && rawY > centerY) result = itemIndex;
+                  }
+                  return result;
               }
           
               private String preview(String value) { String cleaned = value.trim(); return cleaned.length() <= 120 ? cleaned : cleaned.substring(0, 120) + "..."; }
           
               private void showPage(String pageName) {
+                  if (!sortModeKey.isEmpty() && !("text".equals(pageName) && "text".equals(sortModeType)) && !("link".equals(pageName) && "link".equals(sortModeType))) {
+                      sortModeKey = "";
+                      sortModeType = "";
+                      sortDragging = false;
+                  }
                   currentPage = pageName; hideKeyboard(); hideStatus();
                   boolean aiVisible = "ai".equals(pageName);
                   rootScroll.setVisibility(aiVisible ? View.GONE : View.VISIBLE);
@@ -3261,6 +3295,20 @@ jobs:
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) card.setElevation(2f);
                   LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                   lp.setMargins(0, 8, 0, 12); card.setLayoutParams(lp); return card;
+              }
+          
+              private void clearSortVisuals(View view) {
+                  if (view == null) return;
+                  view.clearAnimation();
+                  view.setScaleX(1f);
+                  view.setScaleY(1f);
+                  view.setTranslationX(0f);
+                  view.setTranslationY(0f);
+                  view.setAlpha(1f);
+                  if (view instanceof android.view.ViewGroup) {
+                      android.view.ViewGroup group = (android.view.ViewGroup) view;
+                      for (int i = 0; i < group.getChildCount(); i++) clearSortVisuals(group.getChildAt(i));
+                  }
               }
           
               private LinearLayout labelWrap(String label, View child) {
