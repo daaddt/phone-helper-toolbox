@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 55
-                  versionName "1.11.1"
+                  versionCode 56
+                  versionName "1.11.2"
               }
           
               compileOptions {
@@ -1133,9 +1133,14 @@ jobs:
                   sortList.setClipToPadding(false);
                   sortList.setClipChildren(false);
                   sortPage.addView(sortList);
-                  Button done = button("\u5b8c\u6210\u6392\u5e8f");
-                  sortPage.addView(done);
-                  done.setOnClickListener(v -> exitSortMode());
+                  sortPage.setOnTouchListener((v, event) -> {
+                      if (!sortDragging || sortActiveView == null) return false;
+                      return handleSortDragTouch(sortActiveView, event);
+                  });
+                  sortList.setOnTouchListener((v, event) -> {
+                      if (!sortDragging || sortActiveView == null) return false;
+                      return handleSortDragTouch(sortActiveView, event);
+                  });
               }
           
               private void buildTimerPage() {
@@ -2368,18 +2373,22 @@ jobs:
                       LinearLayout wrap = new LinearLayout(this);
                       wrap.setOrientation(LinearLayout.HORIZONTAL);
                       wrap.setGravity(Gravity.CENTER);
-                      wrap.setPadding(0, 0, 0, 2);
+                      wrap.setPadding(0, 0, 0, 4);
                       Button prev = button("\u4e0a\u9875");
                       Button next = button("\u4e0b\u9875");
-                      TextView label = text("\u6392\u5e8f " + (page + 1) + "/" + pages + "  \u53ef\u957f\u6309\u62d6\u62fd\u6362\u4f4d", 13, Color.rgb(226, 232, 240));
-                      label.setGravity(Gravity.CENTER);
-                      prev.setEnabled(page > 0);
-                      next.setEnabled(page < pages - 1);
-                      prev.setOnClickListener(v -> { if (page > 0) prevAction.run(); });
-                      next.setOnClickListener(v -> { if (page < pages - 1) nextAction.run(); });
-                      wrap.addView(prev, new LinearLayout.LayoutParams(0, dpToPx(42), 0.9f));
-                      wrap.addView(label, new LinearLayout.LayoutParams(0, dpToPx(42), 1.8f));
-                      wrap.addView(next, new LinearLayout.LayoutParams(0, dpToPx(42), 0.9f));
+                      Button done = button("\u5b8c\u6210 " + (page + 1) + "/" + pages);
+                      prev.setTag("sortControl");
+                      done.setTag("sortControl");
+                      next.setTag("sortControl");
+                      prev.setEnabled(page > 0 && !sortDragging);
+                      done.setEnabled(!sortDragging);
+                      next.setEnabled(page < pages - 1 && !sortDragging);
+                      prev.setOnClickListener(v -> { if (!sortDragging && page > 0) prevAction.run(); });
+                      done.setOnClickListener(v -> { if (!sortDragging) exitSortMode(); });
+                      next.setOnClickListener(v -> { if (!sortDragging && page < pages - 1) nextAction.run(); });
+                      wrap.addView(prev, new LinearLayout.LayoutParams(0, dpToPx(42), 1f));
+                      wrap.addView(done, new LinearLayout.LayoutParams(0, dpToPx(42), 1.25f));
+                      wrap.addView(next, new LinearLayout.LayoutParams(0, dpToPx(42), 1f));
                       return wrap;
                   }
                   LinearLayout wrap = card();
@@ -3186,6 +3195,26 @@ jobs:
                   } catch (Exception ignored) { return false; }
               }
           
+              private boolean moveItemToExactIndex(String key, int from, int to) {
+                  JSONArray source = loadArray(key);
+                  if (from < 0 || to < 0 || from >= source.length() || to >= source.length()) return false;
+                  if (from == to) return true;
+                  JSONArray withoutMoving = new JSONArray();
+                  JSONArray result = new JSONArray();
+                  try {
+                      JSONObject moving = source.getJSONObject(from);
+                      for (int i = 0; i < source.length(); i++) {
+                          if (i != from) withoutMoving.put(source.getJSONObject(i));
+                      }
+                      for (int i = 0; i < source.length(); i++) {
+                          if (i == to) result.put(moving);
+                          if (i < withoutMoving.length()) result.put(withoutMoving.getJSONObject(i));
+                      }
+                      saveArray(key, result);
+                      return true;
+                  } catch (Exception ignored) { return false; }
+              }
+          
               private boolean moveSortItemAcrossPage(int from, int targetPage, boolean toStart) {
                   JSONArray source = loadArray(sortModeKey);
                   if (from < 0 || from >= source.length()) return false;
@@ -3193,7 +3222,7 @@ jobs:
                   targetPage = Math.max(0, Math.min(pages - 1, targetPage));
                   int target = targetPage * PAGE_SIZE + (toStart ? 0 : PAGE_SIZE - 1);
                   target = Math.max(0, Math.min(source.length() - 1, target));
-                  return moveItemSilently(sortModeKey, from, target);
+                  return moveItemToExactIndex(sortModeKey, from, target);
               }
           
               private boolean isSortMode(String key, String type) {
@@ -3276,6 +3305,7 @@ jobs:
                       sortDragItemHeight = v.getHeight() + dpToPx(10);
                       v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
                       disallowParentIntercept(v, true);
+                      setSortControlsEnabled(false);
                       resetDodgeAnimation(parent);
                       v.animate().cancel();
                       v.setTranslationY(0f);
@@ -3304,54 +3334,11 @@ jobs:
                               sortDragLastRawY = event.getRawY();
                               return false;
                           case MotionEvent.ACTION_MOVE: {
-                              if (!sortDragArmed) return false;
-                              disallowParentIntercept(v, true);
-                              float rawY = event.getRawY();
-                              updateSortAutoPage(event.getRawX(), rawY);
-                              updateSortAutoScroll(rawY);
-                              float dy = rawY - sortDragStartRawY;
-                              if (!sortDragMoved && Math.abs(dy) < dpToPx(18)) {
-                                  v.setTranslationY(0f);
-                                  sortDragPendingIndex = sortDragOriginalIndex;
-                                  resetDodgeAnimation(parent);
-                                  return true;
-                              }
-                              sortDragMoved = true;
-                              v.setTranslationY(dy);
-                              sortDragLastRawY = rawY;
-                              int target2 = computeSortPendingIndex(parent, v);
-                              if (target2 != sortDragPendingIndex) {
-                                  sortDragPendingIndex = target2;
-                                  applyDodgeAnimation(parent, v, sortDragOriginalIndex, target2);
-                                  v.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
-                              }
-                              return true;
+                              return handleSortDragTouch(v, event);
                           }
                           case MotionEvent.ACTION_UP:
                           case MotionEvent.ACTION_CANCEL: {
-                              boolean wasArmed = sortDragArmed;
-                              int from = sortDragOriginalIndex;
-                              int to = sortDragPendingIndex;
-                              sortDragging = false;
-                              sortDragArmed = false;
-                              sortDragMoved = false;
-                              stopSortAutoScroll();
-                              sortActiveView = null;
-                              disallowParentIntercept(v, false);
-                              sortDragOriginalIndex = -1;
-                              sortDragPendingIndex = -1;
-                              sortDragStartRawY = 0f;
-                              sortDragLastRawY = 0f;
-                              v.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
-                              v.setAlpha(1f);
-                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) v.setElevation(6f);
-                              if (wasArmed && from >= 0 && to >= 0 && from != to && Math.abs(v.getTranslationY()) >= dpToPx(18)) {
-                                  commitSortDrop(parent, v, key, type, from, to);
-                              } else {
-                                  v.animate().translationY(0f).setDuration(140).start();
-                                  resetDodgeAnimation(parent);
-                              }
-                              return true;
+                              return handleSortDragTouch(v, event);
                           }
                       }
                       return false;
@@ -3371,11 +3358,72 @@ jobs:
                   sortDragLastRawY = rawY;
                   sortDragItemHeight = (view.getHeight() > 0 ? view.getHeight() : dpToPx(58)) + dpToPx(6);
                   disallowParentIntercept(view, true);
+                  setSortControlsEnabled(false);
                   view.animate().cancel();
                   view.setTranslationY(0f);
                   view.setAlpha(0.96f);
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
                   view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
+              }
+          
+              private boolean handleSortDragTouch(View moving, MotionEvent event) {
+                  if (!sortDragArmed || moving == null) return false;
+                  LinearLayout parent = moving.getParent() instanceof LinearLayout ? (LinearLayout) moving.getParent() : null;
+                  if (parent == null) return false;
+                  switch (event.getAction()) {
+                      case MotionEvent.ACTION_MOVE: {
+                          disallowParentIntercept(moving, true);
+                          setSortControlsEnabled(false);
+                          float rawY = event.getRawY();
+                          updateSortAutoPage(event.getRawX(), rawY);
+                          updateSortAutoScroll(rawY);
+                          float dy = rawY - sortDragStartRawY;
+                          if (!sortDragMoved && Math.abs(dy) < dpToPx(18)) {
+                              moving.setTranslationY(0f);
+                              sortDragPendingIndex = sortDragOriginalIndex;
+                              resetDodgeAnimation(parent);
+                              return true;
+                          }
+                          sortDragMoved = true;
+                          moving.setTranslationY(dy);
+                          sortDragLastRawY = rawY;
+                          int target2 = computeSortPendingIndex(parent, moving);
+                          if (target2 != sortDragPendingIndex) {
+                              sortDragPendingIndex = target2;
+                              applyDodgeAnimation(parent, moving, sortDragOriginalIndex, target2);
+                              moving.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+                          }
+                          return true;
+                      }
+                      case MotionEvent.ACTION_UP:
+                      case MotionEvent.ACTION_CANCEL: {
+                          boolean wasArmed = sortDragArmed;
+                          int from = sortDragOriginalIndex;
+                          int to = sortDragPendingIndex;
+                          sortDragging = false;
+                          sortDragArmed = false;
+                          sortDragMoved = false;
+                          stopSortAutoScroll();
+                          sortActiveView = null;
+                          setSortControlsEnabled(true);
+                          disallowParentIntercept(moving, false);
+                          sortDragOriginalIndex = -1;
+                          sortDragPendingIndex = -1;
+                          sortDragStartRawY = 0f;
+                          sortDragLastRawY = 0f;
+                          moving.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+                          moving.setAlpha(1f);
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) moving.setElevation(6f);
+                          if (wasArmed && from >= 0 && to >= 0 && from != to && Math.abs(moving.getTranslationY()) >= dpToPx(18)) {
+                              commitSortDrop(parent, moving, sortModeKey, sortModeType, from, to);
+                          } else {
+                              moving.animate().translationY(0f).setDuration(140).start();
+                              resetDodgeAnimation(parent);
+                          }
+                          return true;
+                      }
+                  }
+                  return false;
               }
           
               private int computeSortPendingIndex(LinearLayout parent, View moving) {
@@ -3549,6 +3597,20 @@ jobs:
                   while (parent != null) {
                       parent.requestDisallowInterceptTouchEvent(disallow);
                       parent = parent.getParent();
+                  }
+              }
+          
+              private void setSortControlsEnabled(boolean enabled) {
+                  setSortControlsEnabledIn(sortList, enabled);
+              }
+          
+              private void setSortControlsEnabledIn(View view, boolean enabled) {
+                  if (view == null) return;
+                  Object tag = view.getTag();
+                  if ("sortControl".equals(tag)) view.setEnabled(enabled);
+                  if (view instanceof android.view.ViewGroup) {
+                      android.view.ViewGroup group = (android.view.ViewGroup) view;
+                      for (int i = 0; i < group.getChildCount(); i++) setSortControlsEnabledIn(group.getChildAt(i), enabled);
                   }
               }
           
