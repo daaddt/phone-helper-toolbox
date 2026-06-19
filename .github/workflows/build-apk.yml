@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 64
-                  versionName "1.12.0"
+                  versionCode 65
+                  versionName "1.12.1"
               }
           
               compileOptions {
@@ -3490,7 +3490,9 @@ jobs:
           
               private boolean handleSortDragTouch(View moving, MotionEvent event) {
                   if (!sortDragArmed || moving == null) return false;
-                  LinearLayout parent = moving.getParent() instanceof LinearLayout ? (LinearLayout) moving.getParent() : null;
+                  // 跨页浮动模式下，moving 的父容器是 sortPage，但排序条目在 sortList 中
+                  // 必须用 sortList 作为计算父容器，否则找不到目标页条目
+                  LinearLayout parent = sortList;
                   if (parent == null) return false;
                   switch (event.getAction()) {
                       case MotionEvent.ACTION_MOVE: {
