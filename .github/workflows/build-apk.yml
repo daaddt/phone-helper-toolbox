@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 51
-                  versionName "1.10.7"
+                  versionCode 52
+                  versionName "1.10.8"
               }
           
               compileOptions {
@@ -828,6 +828,8 @@ jobs:
               private float sortDragStartRawY = 0f;
               private float sortDragLastRawY = 0f;
               private float sortDragItemHeight = 0f;
+              private View sortActiveView = null;
+              private int sortAutoScrollDirection = 0;
               private long lastBackPressedAt = 0;
           
               private final Runnable tick = new Runnable() {
@@ -837,6 +839,13 @@ jobs:
                       updatePomoDisplay();
                       updateAlarmDisplay();
                       handler.postDelayed(this, 250);
+                  }
+              };
+          
+              private final Runnable sortAutoScrollTick = new Runnable() {
+                  @Override
+                  public void run() {
+                      runSortAutoScrollTick();
                   }
               };
           
@@ -3069,6 +3078,8 @@ jobs:
                   sortDragging = false;
                   sortDragArmed = false;
                   sortDragMoved = false;
+                  stopSortAutoScroll();
+                  sortActiveView = null;
                   sortDragOriginalIndex = -1;
                   sortDragPendingIndex = -1;
                   sortDragStartRawY = 0f;
@@ -3092,6 +3103,8 @@ jobs:
                   sortDragging = false;
                   sortDragArmed = false;
                   sortDragMoved = false;
+                  stopSortAutoScroll();
+                  sortActiveView = null;
                   sortDragOriginalIndex = -1;
                   sortDragPendingIndex = -1;
                   sortDragStartRawY = 0f;
@@ -3118,10 +3131,11 @@ jobs:
               private void makeSortDraggable(View target, String key, int index, String type) {
                   target.setOnLongClickListener(v -> {
                       if (!isSortMode(key, type)) return false;
-                      if (sortDragging) return false;
+                      if (sortDragging || (sortActiveView != null && sortActiveView != v)) return true;
                       LinearLayout parent = v.getParent() instanceof LinearLayout ? (LinearLayout) v.getParent() : null;
                       if (parent == null) return false;
                       int realIndex = Math.max(0, parent.indexOfChild(v) - 1);
+                      sortActiveView = v;
                       sortDragging = true;
                       sortDragArmed = true;
                       sortDragMoved = false;
@@ -3140,6 +3154,7 @@ jobs:
                   });
                   target.setOnTouchListener((v, event) -> {
                       if (!isSortMode(key, type)) return false;
+                      if (sortActiveView != null && sortActiveView != v) return true;
                       LinearLayout parent = v.getParent() instanceof LinearLayout ? (LinearLayout) v.getParent() : null;
                       if (parent == null) return false;
                       switch (event.getAction()) {
@@ -3151,6 +3166,7 @@ jobs:
                               if (!sortDragArmed) return false;
                               disallowParentIntercept(v, true);
                               float rawY = event.getRawY();
+                              updateSortAutoScroll(rawY);
                               float dy = rawY - sortDragStartRawY;
                               if (!sortDragMoved && Math.abs(dy) < dpToPx(18)) {
                                   v.setTranslationY(0f);
@@ -3177,6 +3193,8 @@ jobs:
                               sortDragging = false;
                               sortDragArmed = false;
                               sortDragMoved = false;
+                              stopSortAutoScroll();
+                              sortActiveView = null;
                               disallowParentIntercept(v, false);
                               sortDragOriginalIndex = -1;
                               sortDragPendingIndex = -1;
@@ -3248,6 +3266,52 @@ jobs:
                   }).start();
               }
           
+              private void updateSortAutoScroll(float rawY) {
+                  if (!sortDragArmed || rootScroll == null || sortActiveView == null || !"sort".equals(currentPage)) {
+                      stopSortAutoScroll();
+                      return;
+                  }
+                  int[] loc = new int[2];
+                  rootScroll.getLocationOnScreen(loc);
+                  int edge = dpToPx(88);
+                  int top = loc[1] + edge;
+                  int bottom = loc[1] + rootScroll.getHeight() - edge;
+                  int direction = 0;
+                  if (rawY < top) direction = -1;
+                  else if (rawY > bottom) direction = 1;
+                  if (direction != sortAutoScrollDirection) {
+                      sortAutoScrollDirection = direction;
+                      handler.removeCallbacks(sortAutoScrollTick);
+                      if (direction != 0) handler.post(sortAutoScrollTick);
+                  }
+              }
+          
+              private void runSortAutoScrollTick() {
+                  if (sortAutoScrollDirection == 0 || !sortDragArmed || rootScroll == null || sortActiveView == null || !"sort".equals(currentPage)) return;
+                  LinearLayout parent = sortActiveView.getParent() instanceof LinearLayout ? (LinearLayout) sortActiveView.getParent() : null;
+                  if (parent == null) { stopSortAutoScroll(); return; }
+                  int before = rootScroll.getScrollY();
+                  int step = sortAutoScrollDirection * dpToPx(18);
+                  rootScroll.scrollBy(0, step);
+                  int actual = rootScroll.getScrollY() - before;
+                  if (actual != 0) {
+                      sortDragStartRawY -= actual;
+                      float dy = sortDragLastRawY - sortDragStartRawY;
+                      sortActiveView.setTranslationY(dy);
+                      int target2 = computeSortPendingIndex(parent, sortActiveView);
+                      if (target2 != sortDragPendingIndex) {
+                          sortDragPendingIndex = target2;
+                          applyDodgeAnimation(parent, sortActiveView, sortDragOriginalIndex, target2);
+                      }
+                  }
+                  handler.postDelayed(sortAutoScrollTick, 28);
+              }
+          
+              private void stopSortAutoScroll() {
+                  sortAutoScrollDirection = 0;
+                  handler.removeCallbacks(sortAutoScrollTick);
+              }
+          
               private int dpToPx(int dp) {
                   return Math.round(dp * getResources().getDisplayMetrics().density);
               }
@@ -3316,6 +3380,8 @@ jobs:
                       sortDragging = false;
                       sortDragArmed = false;
                       sortDragMoved = false;
+                      stopSortAutoScroll();
+                      sortActiveView = null;
                       sortDragOriginalIndex = -1;
                       sortDragPendingIndex = -1;
                   }
