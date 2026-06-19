@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 62
-                  versionName "1.11.8"
+                  versionCode 63
+                  versionName "1.11.9"
               }
           
               compileOptions {
@@ -3428,32 +3428,20 @@ jobs:
                   disallowParentIntercept(view, true);
                   setSortControlsEnabled(false);
                   view.animate().cancel();
-                  view.setVisibility(View.INVISIBLE);
-                  view.setTranslationY(0f);
+                  alignSortDragToFinger(view, rawY);
                   view.setAlpha(0.96f);
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
                   view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
-                  view.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
-                      @Override
-                      public boolean onPreDraw() {
-                          if (view.getViewTreeObserver().isAlive()) view.getViewTreeObserver().removeOnPreDrawListener(this);
-                          if (sortActiveView != view || !sortDragArmed) return true;
-                          alignSortDragToFinger(view, rawY);
-                          view.setVisibility(View.VISIBLE);
-                          LinearLayout p = view.getParent() instanceof LinearLayout ? (LinearLayout) view.getParent() : null;
-                          if (p != null) {
-                              int target2 = computeSortPendingIndex(p, view);
-                              sortDragPendingIndex = target2;
-                              applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
-                          }
-                          return true;
-                      }
-                  });
-                  view.postDelayed(() -> {
-                      if (sortActiveView != view || !sortDragArmed || view.getVisibility() == View.VISIBLE) return;
+                  LinearLayout p = view.getParent() instanceof LinearLayout ? (LinearLayout) view.getParent() : null;
+                  if (p != null) {
+                      int target2 = computeSortPendingIndex(p, view);
+                      sortDragPendingIndex = target2;
+                      applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
+                  }
+                  view.post(() -> {
+                      if (sortActiveView != view || !sortDragArmed) return;
                       alignSortDragToFinger(view, rawY);
-                      view.setVisibility(View.VISIBLE);
-                  }, 32);
+                  });
               }
           
               private void alignSortDragToFinger(View view, float rawY) {
@@ -3461,7 +3449,22 @@ jobs:
                   int h = view.getHeight() > 0 ? view.getHeight() : dpToPx(58);
                   int[] loc = new int[2];
                   view.getLocationOnScreen(loc);
-                  float desiredTranslation = rawY - (loc[1] + h / 2f);
+                  float baseTop = loc[1];
+                  if (baseTop <= 0 && view.getParent() instanceof LinearLayout) {
+                      LinearLayout parent = (LinearLayout) view.getParent();
+                      int[] parentLoc = new int[2];
+                      parent.getLocationOnScreen(parentLoc);
+                      int childTop = 0;
+                      for (int i = 0; i < parent.getChildCount(); i++) {
+                          View child = parent.getChildAt(i);
+                          if (child == view) break;
+                          int childH = child.getHeight();
+                          if (childH <= 0 && child.getLayoutParams() != null && child.getLayoutParams().height > 0) childH = child.getLayoutParams().height;
+                          childTop += Math.max(0, childH);
+                      }
+                      baseTop = parentLoc[1] + childTop;
+                  }
+                  float desiredTranslation = rawY - (baseTop + h / 2f);
                   sortDragStartRawY = rawY - desiredTranslation;
                   sortDragLastRawY = rawY;
                   view.setTranslationY(desiredTranslation);
@@ -3568,9 +3571,7 @@ jobs:
                       int childIndex = ((Integer) childTag).intValue();
                       float shift = 0f;
                       if (sortCrossPagePending) {
-                          if (toIndex <= pageStart && childIndex >= pageStart && childIndex <= pageEnd) {
-                              shift = sortDragItemHeight;
-                          } else if (toIndex > pageStart && childIndex >= pageStart && childIndex < Math.min(toIndex, pageEnd + 1)) {
+                          if (toIndex > pageStart && childIndex >= pageStart && childIndex < Math.min(toIndex, pageEnd + 1)) {
                               shift = -sortDragItemHeight;
                           }
                       } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
