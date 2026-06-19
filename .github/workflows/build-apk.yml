@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 42
-                  versionName "1.9.8"
+                  versionCode 43
+                  versionName "1.9.9"
               }
           
               compileOptions {
@@ -729,6 +729,8 @@ jobs:
           import android.view.MotionEvent;
           import android.view.View;
           import android.view.WindowManager;
+          import android.view.animation.Animation;
+          import android.view.animation.TranslateAnimation;
           import android.view.inputmethod.InputMethodManager;
           import android.widget.Button;
           import android.widget.CheckBox;
@@ -818,6 +820,8 @@ jobs:
               private String sortModeType = "";
               private float sortSwipeStartX = 0f;
               private float sortSwipeStartY = 0f;
+              private long sortModeEnteredAt = 0L;
+              private boolean sortDragging = false;
               private long lastBackPressedAt = 0;
           
               private final Runnable tick = new Runnable() {
@@ -2146,9 +2150,8 @@ jobs:
                   card.addView(text(title, 18, Color.WHITE));
                   card.addView(text(preview(content), 14, Color.LTGRAY));
                   if (isSortMode("texts", "text")) {
-                      card.addView(sortModeHintText());
-                      attachSortSwipeExit(card, "texts", "text");
                       makeSortDraggable(card, "texts", index, "text");
+                      applySortItemVisual(card, index);
                       return card;
                   }
                   card.setOnLongClickListener(v -> { enterSortMode("texts", "text"); return true; });
@@ -2220,9 +2223,8 @@ jobs:
                   card.addView(text(title, 18, Color.WHITE));
                   card.addView(text(url, 13, Color.LTGRAY));
                   if (isSortMode("links", "link")) {
-                      card.addView(sortModeHintText());
-                      attachSortSwipeExit(card, "links", "link");
                       makeSortDraggable(card, "links", index, "link");
+                      applySortItemVisual(card, index);
                       return card;
                   }
                   card.setOnLongClickListener(v -> { enterSortMode("links", "link"); return true; });
@@ -2996,6 +2998,7 @@ jobs:
                       }
                       saveArray(key, result);
                       boolean sorting = isSortMode(key, type);
+                      sortDragging = false;
                       if ("text".equals(type)) { renderSavedTexts(); if (!sorting) showStatus("\u5df2\u8c03\u6574\u5e38\u7528\u6587\u672c\u987a\u5e8f"); }
                       else { renderLinks(); if (!sorting) showStatus("\u5df2\u8c03\u6574\u5feb\u6377\u94fe\u63a5\u987a\u5e8f"); }
                   } catch (Exception ignored) {}
@@ -3010,6 +3013,10 @@ jobs:
                   if ("link".equals(type) && editingLinkIndex >= 0) { showStatus("\u8bf7\u5148\u4fdd\u5b58\u6216\u53d6\u6d88\u7f16\u8f91"); return; }
                   sortModeKey = key;
                   sortModeType = type;
+                  sortModeEnteredAt = SystemClock.elapsedRealtime();
+                  sortDragging = false;
+                  sortSwipeStartX = 0f;
+                  sortSwipeStartY = 0f;
                   if ("text".equals(type)) renderSavedTexts(); else renderLinks();
                   showStatus("\u5df2\u8fdb\u5165\u6392\u5e8f\u6a21\u5f0f\uff1a\u957f\u6309\u4efb\u4e00\u6761\u76ee\u62d6\u52a8\uff0c\u5de6\u6ed1\u6216\u53f3\u6ed1\u9000\u51fa");
               }
@@ -3021,6 +3028,8 @@ jobs:
                   sortModeType = "";
                   sortSwipeStartX = 0f;
                   sortSwipeStartY = 0f;
+                  sortModeEnteredAt = 0L;
+                  sortDragging = false;
                   if ("text".equals(type)) renderSavedTexts(); else renderLinks();
                   showStatus("\u6392\u5e8f\u5df2\u4fdd\u5b58");
               }
@@ -3037,15 +3046,9 @@ jobs:
                   return tv;
               }
           
-              private TextView sortModeHintText() {
-                  TextView hint = text("\u957f\u6309\u6b64\u6761\u62d6\u52a8  \u2630", 13, Color.rgb(125, 211, 252));
-                  hint.setGravity(Gravity.RIGHT);
-                  hint.setPadding(0, 8, 0, 0);
-                  return hint;
-              }
-          
               private void makeSortDraggable(View target, String key, int index, String type) {
                   target.setOnLongClickListener(v -> {
+                      sortDragging = true;
                       ClipData data = ClipData.newPlainText("phone_helper_sort", key + ":" + index + ":" + type);
                       v.setAlpha(0.55f);
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) v.startDragAndDrop(data, new View.DragShadowBuilder(v), v, 0);
@@ -3054,21 +3057,42 @@ jobs:
                   });
               }
           
+              private void applySortItemVisual(View target, int index) {
+                  target.setScaleX(1.025f);
+                  target.setScaleY(1.025f);
+                  try {
+                      TranslateAnimation shake = new TranslateAnimation(-2f, 2f, 0f, 0f);
+                      shake.setDuration(90);
+                      shake.setRepeatCount(Animation.INFINITE);
+                      shake.setRepeatMode(Animation.REVERSE);
+                      shake.setStartOffset((index % 3) * 45L);
+                      target.startAnimation(shake);
+                  } catch (Exception ignored) {}
+              }
+          
               private void attachSortSwipeExit(View target, String key, String type) {
                   target.setOnTouchListener((v, event) -> {
                       if (!isSortMode(key, type)) return false;
+                      if (sortDragging) return true;
                       if (event.getAction() == MotionEvent.ACTION_DOWN) {
                           sortSwipeStartX = event.getX();
                           sortSwipeStartY = event.getY();
-                          return false;
+                          return true;
+                      }
+                      if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                          float dx = event.getX() - sortSwipeStartX;
+                          float dy = event.getY() - sortSwipeStartY;
+                          if (Math.abs(dx) > 32 && Math.abs(dx) > Math.abs(dy) * 1.2f) return true;
                       }
                       if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                          if (SystemClock.elapsedRealtime() - sortModeEnteredAt < 700) return true;
                           float dx = event.getX() - sortSwipeStartX;
                           float dy = event.getY() - sortSwipeStartY;
                           if (Math.abs(dx) > 150 && Math.abs(dx) > Math.abs(dy) * 1.4f) {
                               exitSortMode();
                               return true;
                           }
+                          return true;
                       }
                       return false;
                   });
@@ -3078,11 +3102,17 @@ jobs:
                   target.setOnDragListener((v, event) -> {
                       if (!isSortMode(key, type)) return false;
                       switch (event.getAction()) {
+                          case android.view.DragEvent.ACTION_DRAG_STARTED:
+                              sortDragging = true;
+                              return true;
                           case android.view.DragEvent.ACTION_DRAG_ENTERED:
                               v.setAlpha(0.78f);
                               return true;
                           case android.view.DragEvent.ACTION_DRAG_EXITED:
+                              v.setAlpha(1f);
+                              return true;
                           case android.view.DragEvent.ACTION_DRAG_ENDED:
+                              sortDragging = false;
                               v.setAlpha(1f);
                               return true;
                           case android.view.DragEvent.ACTION_DROP:
@@ -3127,6 +3157,7 @@ jobs:
           
               @Override
               public void onBackPressed() {
+                  if (!sortModeKey.isEmpty()) { exitSortMode(); return; }
                   if (!"home".equals(currentPage)) { showPage("home"); }
                   else {
                       long now = SystemClock.elapsedRealtime();
