@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 53
-                  versionName "1.10.9"
+                  versionCode 54
+                  versionName "1.11.0"
               }
           
               compileOptions {
@@ -982,10 +982,13 @@ jobs:
                   rootScroll = new ScrollView(this);
                   rootScroll.setFillViewport(false);
                   rootScroll.setClipToPadding(false);
+                  rootScroll.setClipChildren(false);
                   rootScroll.setBackgroundColor(Color.rgb(10, 15, 25));
                   rootContainer = new LinearLayout(this);
                   rootContainer.setOrientation(LinearLayout.VERTICAL);
                   rootContainer.setPadding(22, 126, 22, rootBaseBottomPadding);
+                  rootContainer.setClipToPadding(false);
+                  rootContainer.setClipChildren(false);
                   rootScroll.addView(rootContainer);
           
                   statusText = text("", 14, Color.rgb(125, 211, 252));
@@ -1120,12 +1123,15 @@ jobs:
               }
           
               private void buildSortPage() {
-                  sortPage.addView(sectionTitle("\u6392\u5e8f"));
-                  sortPage.addView(infoCard("\u53ef\u957f\u6309\u62d6\u62fd\u6362\u4f4d"));
+                  sortPage.setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(8));
+                  sortPage.setClipToPadding(false);
+                  sortPage.setClipChildren(false);
                   Button done = button("\u5b8c\u6210\u6392\u5e8f");
                   sortPage.addView(done);
                   sortList = new LinearLayout(this);
                   sortList.setOrientation(LinearLayout.VERTICAL);
+                  sortList.setClipToPadding(false);
+                  sortList.setClipChildren(false);
                   sortPage.addView(sortList);
                   done.setOnClickListener(v -> exitSortMode());
               }
@@ -3229,6 +3235,15 @@ jobs:
                       if (parent == null) return false;
                       switch (event.getAction()) {
                           case MotionEvent.ACTION_DOWN:
+                              if (rootScroll != null) {
+                                  rootScroll.requestDisallowInterceptTouchEvent(true);
+                                  rootScroll.getParent();
+                                  // 强制停止 ScrollView 的 fling，避免滚动后子条目接收不到完整事件
+                                  android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event.getDownTime(), event.getEventTime(), android.view.MotionEvent.ACTION_CANCEL, 0, 0, 0);
+                                  rootScroll.onTouchEvent(cancel);
+                                  cancel.recycle();
+                              }
+                              disallowParentIntercept(v, true);
                               sortDragStartRawY = event.getRawY();
                               sortDragLastRawY = event.getRawY();
                               return false;
@@ -3394,15 +3409,37 @@ jobs:
                   int nextPage = clampPage(sortPageIndex + direction, total);
                   if (nextPage == sortPageIndex) { sortAutoPageSince = SystemClock.elapsedRealtime(); return; }
                   int from = sortDragOriginalIndex;
-                  boolean toStart = direction > 0;
+                  // 顺向（向下一页）放在新页末尾；反向（向上一页）放在新页末尾，使被拖条目位于新页"页底"，
+                  // 这样不会与该页第一条做替换，也不会"卡住"。
+                  boolean toStart = false;
                   stopSortAutoScroll();
-                  disallowParentIntercept(sortActiveView, false);
+                  // 立即结束本次拖拽会话，避免旧 view 与新 view 状态错位
+                  View active = sortActiveView;
+                  if (active != null) {
+                      active.animate().cancel();
+                      active.setTranslationY(0f);
+                      active.setAlpha(1f);
+                      active.setScaleX(1f);
+                      active.setScaleY(1f);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) active.setElevation(6f);
+                      disallowParentIntercept(active, false);
+                  }
+                  sortDragging = false;
+                  sortDragArmed = false;
+                  sortDragMoved = false;
+                  sortDragOriginalIndex = -1;
+                  sortDragPendingIndex = -1;
+                  sortDragStartRawY = 0f;
+                  sortDragLastRawY = 0f;
+                  sortActiveView = null;
+                  sortAutoPageDirection = 0;
+                  sortAutoPageSince = 0L;
                   if (moveSortItemAcrossPage(from, nextPage, toStart)) {
                       sortPageIndex = nextPage;
-                      sortAutoPageDirection = 0;
-                      sortAutoPageSince = 0L;
                       renderSortPage();
-                      showStatus("\u5df2\u81ea\u52a8\u6362\u9875");
+                      showStatus("\u5df2\u81ea\u52a8\u6362\u9875\uff0c\u8bf7\u91cd\u65b0\u957f\u6309\u62d6\u62fd");
+                  } else {
+                      renderSortPage();
                   }
               }
           
