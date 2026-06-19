@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 58
-                  versionName "1.11.4"
+                  versionCode 59
+                  versionName "1.11.5"
               }
           
               compileOptions {
@@ -1128,9 +1128,11 @@ jobs:
               }
           
               private void buildSortPage() {
-                  sortPage.setPadding(dpToPx(8), dpToPx(4), dpToPx(8), dpToPx(8));
+                  sortPage.setPadding(dpToPx(8), dpToPx(12), dpToPx(8), dpToPx(8));
                   sortPage.setClipToPadding(false);
                   sortPage.setClipChildren(false);
+                  sortPage.addView(sectionTitle("\u6392\u5e8f"));
+                  sortPage.addView(pageComfortHint("\u53ef\u957f\u6309\u62d6\u62fd\u6362\u4f4d\uff0c\u62d6\u5230\u5de6\u4e0a\u6216\u53f3\u4e0a\u53ef\u81ea\u52a8\u6362\u9875\u3002"));
                   sortList = new LinearLayout(this);
                   sortList.setOrientation(LinearLayout.VERTICAL);
                   sortList.setClipToPadding(false);
@@ -2332,7 +2334,7 @@ jobs:
                   }
                   sortResumeDragIndex = -1;
                   sortResumeRawY = 0f;
-                  sortResumeDirection = 0;
+                  if (!sortCrossPagePending) sortResumeDirection = 0;
               }
           
               private View linkCard(int index, JSONObject obj) {
@@ -3279,7 +3281,10 @@ jobs:
                           if (i == from || i == boundaryIndex) continue;
                           list.add(source.getJSONObject(i));
                       }
-                      int movingTo = Math.max(0, Math.min(to, list.size()));
+                      int movingTo = to;
+                      if (from < to) movingTo--;
+                      if (boundaryIndex < to) movingTo--;
+                      movingTo = Math.max(0, Math.min(movingTo, list.size()));
                       list.add(movingTo, moving);
                       int originLast = Math.min((originPage + 1) * PAGE_SIZE - 1, list.size());
                       list.add(originLast, boundary);
@@ -3518,7 +3523,7 @@ jobs:
                   int itemCount = 0;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       Object childTag = parent.getChildAt(i).getTag();
-                      if (childTag instanceof Integer) itemCount++;
+                      if (childTag instanceof Integer && parent.getChildAt(i) != moving) itemCount++;
                   }
                   if (itemCount <= 1) return sortDragOriginalIndex;
                   int[] movingLoc = new int[2];
@@ -3537,12 +3542,14 @@ jobs:
                       float centerY = baseTop + child.getHeight() / 2f;
                       if (movingCenterY > centerY) result++;
                   }
-                  return Math.max(pageStart, Math.min(pageStart + itemCount - 1, pageStart + result));
+                  int maxTarget = pageStart + itemCount;
+                  return Math.max(pageStart, Math.min(maxTarget, pageStart + result));
               }
           
               private void applyDodgeAnimation(LinearLayout parent, View moving, int fromIndex, int toIndex) {
                   int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 0 : 1;
                   int pageStart = isSortMode(sortModeKey, sortModeType) && parent == sortList ? sortPageIndex * PAGE_SIZE : 0;
+                  int pageEnd = pageStart + PAGE_SIZE - 1;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
                       if (child == moving) continue;
@@ -3550,7 +3557,13 @@ jobs:
                       if (!(childTag instanceof Integer)) continue;
                       int childIndex = ((Integer) childTag).intValue();
                       float shift = 0f;
-                      if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
+                      if (sortCrossPagePending) {
+                          if (sortResumeDirection > 0 && childIndex >= pageStart && childIndex <= Math.min(toIndex, pageEnd)) {
+                              shift = sortDragItemHeight;
+                          } else if (sortResumeDirection < 0 && childIndex <= pageEnd && childIndex >= Math.max(toIndex, pageStart)) {
+                              shift = -sortDragItemHeight;
+                          }
+                      } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
                       else if (fromIndex > toIndex && childIndex >= toIndex && childIndex < fromIndex) shift = sortDragItemHeight;
                       child.animate().cancel();
                       child.animate().translationY(shift).setDuration(170).start();
