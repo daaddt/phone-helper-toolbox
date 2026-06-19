@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 38
-                  versionName "1.9.4"
+                  versionCode 39
+                  versionName "1.9.5"
               }
           
               compileOptions {
@@ -1884,15 +1884,16 @@ jobs:
               }
           
               private void buildAiPage() {
-                  aiPage.setPadding(24, 120, 24, aiBaseBottomPadding);
+                  aiPage.setPadding(20, 76, 20, aiBaseBottomPadding);
                   aiPage.setBackgroundColor(Color.rgb(7, 17, 31));
                   aiPage.addView(sectionTitle("AI\u804a\u5929"));
-                  aiPage.addView(infoCard("\u8fd9\u91cc\u4f7f\u7528 OpenAI \u5171\u5bb9\u63a5\u53e3\u3002\u9996\u6b21\u4f7f\u7528\u8bf7\u5148\u8fdb\u5165 AI\u8bbe\u7f6e\uff0c\u586b\u5199 API Key\u3002"));
+                  aiPage.addView(infoCard("\u5bf9\u8bdd\u9875\u5df2\u4f18\u5316\u4e3a\u7a33\u5b9a\u6d41\u5f0f\u663e\u793a\u3002\u5982\u679c AI \u56de\u590d\u5f02\u5e38\u6216\u89e6\u53d1\u5b89\u5168\u7b56\u7565\uff0c\u4f1a\u5728\u56de\u590d\u4e2d\u7ed9\u51fa\u8bca\u65ad\u63d0\u793a\u3002"));
                   aiMessageScroll = new ScrollView(this);
                   aiMessageScroll.setFillViewport(false);
                   aiMessageScroll.setClipToPadding(false);
                   aiMessageList = new LinearLayout(this);
                   aiMessageList.setOrientation(LinearLayout.VERTICAL);
+                  aiMessageList.setPadding(0, 4, 0, 10);
                   aiMessageScroll.addView(aiMessageList);
                   aiPage.addView(aiMessageScroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
                   aiInputArea = new LinearLayout(this);
@@ -1909,7 +1910,7 @@ jobs:
                   aiInputArea.addView(aiInput);
                   LinearLayout actions = row();
                   aiSendButton = button("\u53d1\u9001");
-                  Button clear = button("\u6e05\u7a7d");
+                  Button clear = button("\u6e05\u7a7a");
                   actions.addView(aiSendButton, weight()); actions.addView(clear, weight());
                   aiInputArea.addView(actions);
                   aiPage.addView(aiInputArea);
@@ -2465,9 +2466,10 @@ jobs:
                           }));
                           runOnUiThread(() -> {
                               boolean hasReply = reply != null && !reply.trim().isEmpty();
-                              String finalText = hasReply ? reply : buildAiEmptyReplyDiagnosis("模型返回了空内容。");
+                              boolean safetyLike = hasReply && looksLikeSafetyReply(reply);
+                              String finalText = hasReply ? withSafetyDiagnosisIfNeeded(reply) : buildAiEmptyReplyDiagnosis("模型返回了空内容。");
                               finishAiTypewriter(finalText, () -> {
-                                  showStatus(hasReply ? "AI 回复完成" : "AI 没有返回有效内容，已给出诊断建议");
+                                  showStatus(!hasReply ? "AI 没有返回有效内容，已给出诊断建议" : (safetyLike ? "AI 回复可能触发安全策略，已附加诊断提示" : "AI 回复完成"));
                                   aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi(); saveAiMessages(); renderAiMessages();
                               });
                           });
@@ -2673,6 +2675,25 @@ jobs:
                   return "AI 回复异常：模型没有返回可显示的正文。\n\n可能原因：\n1. 当前模型限流、额度不足，或服务端临时异常。\n2. 模型返回了空流，只有状态信息，没有正文内容。\n3. API 地址、模型名称与服务商不匹配。\n\n建议：\n先点“测试连接”，再检查 API Key、模型名和账号额度；如果仍然异常，可以换一个稳定模型后重试。\n\n诊断信息：\n" + limitText(detail, 500);
               }
           
+              private boolean looksLikeSafetyReply(String reply) {
+                  if (reply == null) return false;
+                  String s = reply.toLowerCase(Locale.ROOT);
+                  return s.contains("安全") || s.contains("合规") || s.contains("政策") || s.contains("违规") || s.contains("不能提供")
+                      || s.contains("无法提供") || s.contains("无法协助") || s.contains("不能协助") || s.contains("抱歉")
+                      || s.contains("sorry") || s.contains("i can't") || s.contains("i cannot") || s.contains("not able to")
+                      || s.contains("safety") || s.contains("policy") || s.contains("unsafe") || s.contains("disallowed");
+              }
+          
+              private String withSafetyDiagnosisIfNeeded(String reply) {
+                  if (!looksLikeSafetyReply(reply)) return reply;
+                  return "诊断提示：这次 AI 回复可能触发了模型的安全策略、拒答模板或安全测试响应。\n\n"
+                      + "你可以这样处理：\n"
+                      + "1. 如果你是在做普通问答，尝试把问题写得更具体、减少容易被误判的词。\n"
+                      + "2. 如果你是在测试接口，说明接口已返回安全策略类内容，模型本身可连接，但回答被安全层拦截或改写。\n"
+                      + "3. 如果经常出现这种提示，可以换模型或调整系统提示词，让它更偏向正常助手问答。\n\n"
+                      + "原始 AI 回复：\n" + reply;
+              }
+          
               private String limitText(String value, int max) {
                   if (value == null) return "";
                   String v = value.trim();
@@ -2748,19 +2769,27 @@ jobs:
           
               private View aiBubble(int index, String role, String content, boolean streaming) {
                   boolean user = "user".equals(role);
-                  LinearLayout wrap = new LinearLayout(this); wrap.setOrientation(LinearLayout.VERTICAL);
-                  TextView tv = text((user ? "\u4f60\uff1a\n" : "\u52a9\u624b\uff1a\n") + content, 15, Color.WHITE);
+                  LinearLayout wrap = new LinearLayout(this);
+                  wrap.setOrientation(LinearLayout.VERTICAL);
+                  wrap.setGravity(user ? Gravity.RIGHT : Gravity.LEFT);
+                  TextView tv = text((user ? "你\n" : "AI\n") + content, 15, Color.WHITE);
                   GradientDrawable bg = new GradientDrawable();
-                  bg.setColor(user ? Color.rgb(14, 116, 144) : Color.rgb(30, 41, 59));
-                  bg.setCornerRadius(20); tv.setBackground(bg); tv.setPadding(18, 14, 18, 14);
-                  wrap.addView(tv);
+                  bg.setColor(user ? Color.rgb(14, 116, 144) : Color.rgb(24, 35, 52));
+                  bg.setStroke(1, user ? Color.rgb(34, 211, 238) : Color.rgb(51, 65, 85));
+                  bg.setCornerRadius(22);
+                  tv.setBackground(bg);
+                  tv.setPadding(18, 14, 18, 14);
+                  tv.setLineSpacing(3, 1.05f);
+                  try { tv.setMaxWidth((int)(getResources().getDisplayMetrics().widthPixels * 0.82f)); } catch (Exception ignored) {}
+                  LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  wrap.addView(tv, tvLp);
                   if (!streaming) {
                       View.OnLongClickListener longClick = v -> { showAiMessageActions(index, role, content); return true; };
                       wrap.setOnLongClickListener(longClick);
                       tv.setOnLongClickListener(longClick);
                   }
                   LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                  lp.setMargins(0, 8, 0, 8); wrap.setLayoutParams(lp);
+                  lp.setMargins(0, 6, 0, 10); wrap.setLayoutParams(lp);
                   return wrap;
               }
           
