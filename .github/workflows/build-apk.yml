@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 50
-                  versionName "1.10.6"
+                  versionCode 51
+                  versionName "1.10.7"
               }
           
               compileOptions {
@@ -769,8 +769,8 @@ jobs:
               private SharedPreferences pref;
               private final Handler handler = new Handler();
           
-              private LinearLayout homePage, splitPage, textPage, linkPage, timerPage, pomoPage, alarmPage, aiPage, aiSettingsPage, backupPage;
-              private LinearLayout splitResultList, savedTextList, linkList, alarmList, aiMessageList, aiInputArea;
+              private LinearLayout homePage, splitPage, textPage, linkPage, sortPage, timerPage, pomoPage, alarmPage, aiPage, aiSettingsPage, backupPage;
+              private LinearLayout splitResultList, savedTextList, linkList, sortList, alarmList, aiMessageList, aiInputArea;
               private FrameLayout rootFrame;
               private ScrollView rootScroll;
               private ScrollView aiMessageScroll;
@@ -977,16 +977,16 @@ jobs:
                   statusText.setVisibility(View.GONE);
                   rootContainer.addView(statusText);
           
-                  homePage = page(); splitPage = page(); textPage = page(); linkPage = page();
+                  homePage = page(); splitPage = page(); textPage = page(); linkPage = page(); sortPage = page();
                   timerPage = page(); pomoPage = page(); alarmPage = page(); aiPage = page();
                   aiSettingsPage = page(); backupPage = page();
                   rootContainer.addView(homePage); rootContainer.addView(splitPage);
-                  rootContainer.addView(textPage); rootContainer.addView(linkPage);
+                  rootContainer.addView(textPage); rootContainer.addView(linkPage); rootContainer.addView(sortPage);
                   rootContainer.addView(timerPage); rootContainer.addView(pomoPage);
                   rootContainer.addView(alarmPage); rootContainer.addView(aiSettingsPage);
                   rootContainer.addView(backupPage);
           
-                  buildHomePage(); buildSplitPage(); buildTextPage(); buildLinkPage();
+                  buildHomePage(); buildSplitPage(); buildTextPage(); buildLinkPage(); buildSortPage();
                   buildTimerPage(); buildPomoPage(); buildAlarmPage();
                   buildAiPage(); buildAiSettingsPage(); buildBackupPage();
           
@@ -1102,6 +1102,17 @@ jobs:
                   linkPage.addView(linkList);
                   linkSaveButton.setOnClickListener(v -> addLink());
                   linkCancelEditButton.setOnClickListener(v -> cancelLinkEdit());
+              }
+          
+              private void buildSortPage() {
+                  sortPage.addView(sectionTitle("\u6392\u5e8f"));
+                  sortPage.addView(infoCard("\u53ef\u957f\u6309\u62d6\u62fd\u6362\u4f4d"));
+                  Button done = button("\u5b8c\u6210\u6392\u5e8f");
+                  sortPage.addView(done);
+                  sortList = new LinearLayout(this);
+                  sortList.setOrientation(LinearLayout.VERTICAL);
+                  sortPage.addView(sortList);
+                  done.setOnClickListener(v -> exitSortMode());
               }
           
               private void buildTimerPage() {
@@ -2223,6 +2234,24 @@ jobs:
                   }
               }
           
+              private void renderSortPage() {
+                  if (sortList == null) return;
+                  clearSortVisuals(sortList);
+                  sortList.removeAllViews();
+                  applySortLayoutTransition(sortList, false);
+                  String key = sortModeKey;
+                  String type = sortModeType;
+                  if (key.isEmpty() || type.isEmpty()) return;
+                  sortList.addView(sortModeBanner("\u6392\u5e8f"));
+                  JSONArray array = loadArray(key);
+                  for (int i = 0; i < array.length(); i++) {
+                      try {
+                          JSONObject obj = array.getJSONObject(i);
+                          sortList.addView("text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj));
+                      } catch (Exception ignored) {}
+                  }
+              }
+          
               private View linkCard(int index, JSONObject obj) {
                   LinearLayout card = card();
                   String title = obj.optString("title"); String url = obj.optString("url");
@@ -3047,8 +3076,9 @@ jobs:
                   sortDragItemHeight = 0f;
                   sortSwipeStartX = 0f;
                   sortSwipeStartY = 0f;
-                  if ("text".equals(type)) renderSavedTexts(); else renderLinks();
-                  showStatus("\u5df2\u8fdb\u5165\u6392\u5e8f\u6a21\u5f0f\uff1a\u957f\u6309\u4efb\u4e00\u6761\u76ee\u62d6\u52a8\uff0c\u677e\u624b\u540e\u624d\u5b8c\u6210\u6362\u4f4d");
+                  renderSortPage();
+                  showPage("sort");
+                  showStatus("\u53ef\u957f\u6309\u62d6\u62fd\u6362\u4f4d");
               }
           
               private void exitSortMode() {
@@ -3067,12 +3097,13 @@ jobs:
                   sortDragStartRawY = 0f;
                   sortDragLastRawY = 0f;
                   sortDragItemHeight = 0f;
-                  if ("text".equals(type)) renderSavedTexts(); else renderLinks();
+                  if ("text".equals(type)) { renderSavedTexts(); showPage("text"); }
+                  else { renderLinks(); showPage("link"); }
                   showStatus("\u6392\u5e8f\u5df2\u4fdd\u5b58");
               }
           
               private TextView sortModeBanner(String title) {
-                  TextView tv = text(title + "\u6392\u5e8f\u4e2d\uff1a\u957f\u6309\u4efb\u4e00\u6761\u76ee\u62d6\u52a8\uff0c\u5176\u4ed6\u6761\u76ee\u4f1a\u4e3b\u52a8\u8eb2\u5f00\uff0c\u677e\u624b\u540e\u624d\u5b8c\u6210\u6362\u4f4d\uff1b\u5de6\u6ed1\u6216\u53f3\u6ed1\u9000\u51fa", 13, Color.rgb(125, 211, 252));
+                  TextView tv = text("\u53ef\u957f\u6309\u62d6\u62fd\u6362\u4f4d", 13, Color.rgb(125, 211, 252));
                   tv.setGravity(Gravity.CENTER);
                   tv.setPadding(16, 14, 16, 14);
                   GradientDrawable bg = new GradientDrawable();
@@ -3212,7 +3243,7 @@ jobs:
                   resetDodgeAnimation(parent);
                   moving.animate().translationY(0f).setDuration(160).withEndAction(() -> {
                       if (moveItemSilently(key, from, to)) {
-                          if ("text".equals(type)) renderSavedTexts(); else renderLinks();
+                          renderSortPage();
                       }
                   }).start();
               }
@@ -3279,7 +3310,7 @@ jobs:
               private String preview(String value) { String cleaned = value.trim(); return cleaned.length() <= 120 ? cleaned : cleaned.substring(0, 120) + "..."; }
           
               private void showPage(String pageName) {
-                  if (!sortModeKey.isEmpty() && !("text".equals(pageName) && "text".equals(sortModeType)) && !("link".equals(pageName) && "link".equals(sortModeType))) {
+                  if (!sortModeKey.isEmpty() && !"sort".equals(pageName) && !("text".equals(pageName) && "text".equals(sortModeType)) && !("link".equals(pageName) && "link".equals(sortModeType))) {
                       sortModeKey = "";
                       sortModeType = "";
                       sortDragging = false;
@@ -3295,6 +3326,7 @@ jobs:
                   splitPage.setVisibility("split".equals(pageName) ? View.VISIBLE : View.GONE);
                   textPage.setVisibility("text".equals(pageName) ? View.VISIBLE : View.GONE);
                   linkPage.setVisibility("link".equals(pageName) ? View.VISIBLE : View.GONE);
+                  sortPage.setVisibility("sort".equals(pageName) ? View.VISIBLE : View.GONE);
                   timerPage.setVisibility("timer".equals(pageName) ? View.VISIBLE : View.GONE);
                   pomoPage.setVisibility("pomo".equals(pageName) ? View.VISIBLE : View.GONE);
                   alarmPage.setVisibility("alarm".equals(pageName) ? View.VISIBLE : View.GONE);
