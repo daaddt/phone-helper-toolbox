@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 48
-                  versionName "1.10.4"
+                  versionCode 49
+                  versionName "1.10.5"
               }
           
               compileOptions {
@@ -3098,8 +3098,10 @@ jobs:
                       sortDragPendingIndex = realIndex;
                       sortDragItemHeight = v.getHeight() + dpToPx(10);
                       v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                      resetDodgeAnimation(parent);
+                      v.animate().cancel();
+                      v.setTranslationY(0f);
                       v.setAlpha(0.96f);
-                      v.bringToFront();
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) v.setElevation(18f);
                       v.animate().scaleX(1.04f).scaleY(1.04f).setDuration(140).start();
                       return true;
