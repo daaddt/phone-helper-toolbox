@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 65
-                  versionName "1.12.1"
+                  versionCode 66
+                  versionName "1.12.2"
               }
           
               compileOptions {
@@ -3596,8 +3596,9 @@ jobs:
                       int childIndex = ((Integer) childTag).intValue();
                       float shift = 0f;
                       if (sortCrossPagePending) {
-                          // 跨页模式：浮动条目不在列表中，按插缝位置让目标页条目下移
-                          if (childIndex >= pageStart && childIndex < Math.min(toIndex, pageEnd + 1)) {
+                          // 跨页模式：浮动条目从外部进入，碰触第一条后取代其位置
+                          // 插缝位置及之后的条目全部下移一格，让拖拽条目霸占第一条
+                          if (childIndex >= Math.max(toIndex, pageStart) && childIndex <= pageEnd) {
                               shift = sortDragItemHeight;
                           }
                       } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
