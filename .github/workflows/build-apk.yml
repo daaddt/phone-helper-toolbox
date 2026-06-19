@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 49
-                  versionName "1.10.5"
+                  versionCode 50
+                  versionName "1.10.6"
               }
           
               compileOptions {
@@ -3098,6 +3098,7 @@ jobs:
                       sortDragPendingIndex = realIndex;
                       sortDragItemHeight = v.getHeight() + dpToPx(10);
                       v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+                      disallowParentIntercept(v, true);
                       resetDodgeAnimation(parent);
                       v.animate().cancel();
                       v.setTranslationY(0f);
@@ -3117,6 +3118,7 @@ jobs:
                               return false;
                           case MotionEvent.ACTION_MOVE: {
                               if (!sortDragArmed) return false;
+                              disallowParentIntercept(v, true);
                               float rawY = event.getRawY();
                               float dy = rawY - sortDragStartRawY;
                               if (!sortDragMoved && Math.abs(dy) < dpToPx(18)) {
@@ -3144,6 +3146,7 @@ jobs:
                               sortDragging = false;
                               sortDragArmed = false;
                               sortDragMoved = false;
+                              disallowParentIntercept(v, false);
                               sortDragOriginalIndex = -1;
                               sortDragPendingIndex = -1;
                               sortDragStartRawY = 0f;
@@ -3216,6 +3219,14 @@ jobs:
           
               private int dpToPx(int dp) {
                   return Math.round(dp * getResources().getDisplayMetrics().density);
+              }
+          
+              private void disallowParentIntercept(View view, boolean disallow) {
+                  android.view.ViewParent parent = view == null ? null : view.getParent();
+                  while (parent != null) {
+                      parent.requestDisallowInterceptTouchEvent(disallow);
+                      parent = parent.getParent();
+                  }
               }
           
               private void applySortItemVisual(View target, int index) {
