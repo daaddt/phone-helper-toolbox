@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 39
-                  versionName "1.9.5"
+                  versionCode 40
+                  versionName "1.9.6"
               }
           
               compileOptions {
@@ -947,18 +947,18 @@ jobs:
           
               private void buildUi() {
                   rootFrame = new FrameLayout(this);
-                  rootFrame.setBackgroundColor(Color.rgb(7, 17, 31));
+                  rootFrame.setBackgroundColor(Color.rgb(10, 15, 25));
           
                   rootScroll = new ScrollView(this);
                   rootScroll.setFillViewport(false);
                   rootScroll.setClipToPadding(false);
-                  rootScroll.setBackgroundColor(Color.rgb(7, 17, 31));
+                  rootScroll.setBackgroundColor(Color.rgb(10, 15, 25));
                   rootContainer = new LinearLayout(this);
                   rootContainer.setOrientation(LinearLayout.VERTICAL);
-                  rootContainer.setPadding(24, 120, 24, rootBaseBottomPadding);
+                  rootContainer.setPadding(22, 86, 22, rootBaseBottomPadding);
                   rootScroll.addView(rootContainer);
           
-                  statusText = text("", 14, Color.rgb(52, 211, 153));
+                  statusText = text("", 14, Color.rgb(125, 211, 252));
                   statusText.setVisibility(View.GONE);
                   rootContainer.addView(statusText);
           
@@ -984,11 +984,11 @@ jobs:
               }
           
               private void buildHomePage() {
-                  TextView homeTitle = text("\u624b\u673a\u52a9\u624b\u5de5\u5177\u7bb1", 30, Color.WHITE);
+                  TextView homeTitle = text("\u624b\u673a\u52a9\u624b\u5de5\u5177\u7bb1", 28, Color.WHITE);
                   homeTitle.setTypeface(Typeface.DEFAULT_BOLD);
                   homeTitle.setGravity(Gravity.CENTER_HORIZONTAL);
                   homePage.addView(homeTitle);
-                  TextView homeTip = text("\u9009\u62e9\u4e00\u4e2a\u5de5\u5177", 14, Color.rgb(148, 163, 184));
+                  TextView homeTip = text("\u9009\u62e9\u4e00\u4e2a\u5de5\u5177", 14, Color.rgb(156, 163, 175));
                   homeTip.setGravity(Gravity.CENTER_HORIZONTAL);
                   homePage.addView(homeTip);
                   homePage.addView(sectionTitle("\u5e38\u7528\u5de5\u5177"));
@@ -1011,7 +1011,7 @@ jobs:
                   t.setTypeface(Typeface.DEFAULT_BOLD);
                   card.addView(t);
                   card.addView(text(desc, 13, Color.rgb(148, 163, 184)));
-                  TextView hint = text("\u70b9\u6309\u8fdb\u5165", 13, Color.rgb(52, 211, 153));
+                  TextView hint = text("\u8fdb\u5165  \u203a", 13, Color.rgb(125, 211, 252));
                   hint.setGravity(Gravity.RIGHT);
                   card.addView(hint);
                   card.setClickable(true);
@@ -2128,13 +2128,12 @@ jobs:
           
               private View savedTextCard(int index, JSONObject obj) {
                   LinearLayout card = card();
+                  attachSortDropTarget(card, "texts", index, "text");
                   String title = obj.optString("title"); String content = obj.optString("content");
                   card.addView(text(title, 18, Color.WHITE));
                   card.addView(text(preview(content), 14, Color.LTGRAY));
                   LinearLayout actions = row();
                   Button copy = button("\u590d\u5236"); Button edit = button("\u7f16\u8f91"); Button delete = button("\u5220\u9664");
-                  LinearLayout sortActions = row();
-                  Button up = button("\u4e0a\u79fb"); Button down = button("\u4e0b\u79fb");
                   copy.setOnClickListener(v -> copyText(title, content));
                   edit.setOnClickListener(v -> startTextEdit(index, title, content));
                   delete.setOnClickListener(v -> {
@@ -2142,14 +2141,9 @@ jobs:
                       removeItem("texts", index); renderSavedTexts();
                       showStatus("\u5df2\u5220\u9664\u5e38\u7528\u6587\u672c");
                   });
-                  up.setEnabled(index > 0); down.setEnabled(index < loadArray("texts").length() - 1);
-                  up.setAlpha(index > 0 ? 1f : 0.45f); down.setAlpha(index < loadArray("texts").length() - 1 ? 1f : 0.45f);
-                  up.setOnClickListener(v -> moveItem("texts", index, index - 1, "text"));
-                  down.setOnClickListener(v -> moveItem("texts", index, index + 1, "text"));
                   actions.addView(copy, weight()); actions.addView(edit, weight()); actions.addView(delete, weight());
                   card.addView(actions);
-                  sortActions.addView(up, weight()); sortActions.addView(down, weight());
-                  card.addView(sortActions);
+                  card.addView(dragHandle("texts", index, "text"));
                   return card;
               }
           
@@ -2200,13 +2194,12 @@ jobs:
           
               private View linkCard(int index, JSONObject obj) {
                   LinearLayout card = card();
+                  attachSortDropTarget(card, "links", index, "link");
                   String title = obj.optString("title"); String url = obj.optString("url");
                   card.addView(text(title, 18, Color.WHITE));
                   card.addView(text(url, 13, Color.LTGRAY));
                   LinearLayout actions = row();
                   Button open = button("\u6253\u5f00"); Button copy = button("\u590d\u5236\u7f51\u5740"); Button edit = button("\u7f16\u8f91"); Button delete = button("\u5220\u9664");
-                  LinearLayout sortActions = row();
-                  Button up = button("\u4e0a\u79fb"); Button down = button("\u4e0b\u79fb");
                   open.setOnClickListener(v -> openUrl(url));
                   copy.setOnClickListener(v -> copyText(title + "\u7f51\u5740", url));
                   edit.setOnClickListener(v -> startLinkEdit(index, title, url));
@@ -2215,14 +2208,9 @@ jobs:
                       removeItem("links", index); renderLinks();
                       showStatus("\u5df2\u5220\u9664\u5feb\u6377\u94fe\u63a5");
                   });
-                  up.setEnabled(index > 0); down.setEnabled(index < loadArray("links").length() - 1);
-                  up.setAlpha(index > 0 ? 1f : 0.45f); down.setAlpha(index < loadArray("links").length() - 1 ? 1f : 0.45f);
-                  up.setOnClickListener(v -> moveItem("links", index, index - 1, "link"));
-                  down.setOnClickListener(v -> moveItem("links", index, index + 1, "link"));
                   actions.addView(open, weight()); actions.addView(copy, weight()); actions.addView(edit, weight()); actions.addView(delete, weight());
                   card.addView(actions);
-                  sortActions.addView(up, weight()); sortActions.addView(down, weight());
-                  card.addView(sortActions);
+                  card.addView(dragHandle("links", index, "link"));
                   return card;
               }
           
@@ -2985,6 +2973,57 @@ jobs:
                   } catch (Exception ignored) {}
               }
           
+              private TextView dragHandle(String key, int index, String type) {
+                  TextView handle = text("\u957f\u6309\u62d6\u62fd\u6392\u5e8f  \u2630", 13, Color.rgb(125, 211, 252));
+                  handle.setGravity(Gravity.RIGHT);
+                  handle.setPadding(12, 10, 4, 2);
+                  handle.setOnLongClickListener(v -> {
+                      if ("text".equals(type) && editingTextIndex >= 0) { showStatus("\u8bf7\u5148\u4fdd\u5b58\u6216\u53d6\u6d88\u7f16\u8f91"); return true; }
+                      if ("link".equals(type) && editingLinkIndex >= 0) { showStatus("\u8bf7\u5148\u4fdd\u5b58\u6216\u53d6\u6d88\u7f16\u8f91"); return true; }
+                      ClipData data = ClipData.newPlainText("phone_helper_sort", key + ":" + index + ":" + type);
+                      v.setAlpha(0.45f);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) v.startDragAndDrop(data, new View.DragShadowBuilder(v), v, 0);
+                      else v.startDrag(data, new View.DragShadowBuilder(v), v, 0);
+                      showStatus("\u62d6\u5230\u76ee\u6807\u4f4d\u7f6e\u540e\u677e\u624b");
+                      return true;
+                  });
+                  handle.setOnDragListener((v, event) -> {
+                      if (event.getAction() == android.view.DragEvent.ACTION_DRAG_ENDED) v.setAlpha(1f);
+                      return true;
+                  });
+                  return handle;
+              }
+          
+              private void attachSortDropTarget(View target, String key, int targetIndex, String type) {
+                  target.setOnDragListener((v, event) -> {
+                      switch (event.getAction()) {
+                          case android.view.DragEvent.ACTION_DRAG_ENTERED:
+                              v.setAlpha(0.78f);
+                              return true;
+                          case android.view.DragEvent.ACTION_DRAG_EXITED:
+                          case android.view.DragEvent.ACTION_DRAG_ENDED:
+                              v.setAlpha(1f);
+                              return true;
+                          case android.view.DragEvent.ACTION_DROP:
+                              v.setAlpha(1f);
+                              try {
+                                  ClipData data = event.getClipData();
+                                  if (data == null || data.getItemCount() == 0) return true;
+                                  String raw = String.valueOf(data.getItemAt(0).getText());
+                                  String[] parts = raw.split(":");
+                                  if (parts.length < 3) return true;
+                                  String dragKey = parts[0];
+                                  int from = parseInt(parts[1], -1);
+                                  String dragType = parts[2];
+                                  if (!key.equals(dragKey) || !type.equals(dragType) || from < 0 || from == targetIndex) return true;
+                                  moveItem(key, from, targetIndex, type);
+                              } catch (Exception ignored) {}
+                              return true;
+                      }
+                      return true;
+                  });
+              }
+          
               private String preview(String value) { String cleaned = value.trim(); return cleaned.length() <= 120 ? cleaned : cleaned.substring(0, 120) + "..."; }
           
               private void showPage(String pageName) {
@@ -3019,28 +3058,29 @@ jobs:
               private void hideStatus() { if (statusText == null) return; statusText.setVisibility(View.GONE); }
           
               private TextView text(String value, int sp, int color) {
-                  TextView tv = new TextView(this); tv.setText(value); tv.setTextSize(sp); tv.setTextColor(color); tv.setPadding(0, 10, 0, 10); return tv;
+                  TextView tv = new TextView(this); tv.setText(value); tv.setTextSize(sp); tv.setTextColor(color); tv.setPadding(0, 8, 0, 8); return tv;
               }
           
-              private TextView sectionTitle(String value) { TextView tv = text(value, 22, Color.WHITE); tv.setTypeface(Typeface.DEFAULT_BOLD); tv.setPadding(0, 28, 0, 10); return tv; }
+              private TextView sectionTitle(String value) { TextView tv = text(value, 20, Color.WHITE); tv.setTypeface(Typeface.DEFAULT_BOLD); tv.setPadding(0, 22, 0, 8); return tv; }
           
               private TextView infoCard(String value) {
-                  TextView tv = text(value, 14, Color.LTGRAY);
+                  TextView tv = text(value, 14, Color.rgb(203, 213, 225));
                   GradientDrawable bg = new GradientDrawable();
-                  bg.setColor(Color.rgb(15, 23, 42)); bg.setStroke(2, Color.rgb(51, 65, 85)); bg.setCornerRadius(18);
-                  tv.setBackground(bg); tv.setPadding(18, 16, 18, 16); return tv;
+                  bg.setColor(Color.rgb(15, 23, 42)); bg.setStroke(1, Color.rgb(38, 52, 73)); bg.setCornerRadius(22);
+                  tv.setBackground(bg); tv.setPadding(18, 16, 18, 16); tv.setLineSpacing(3, 1.05f); return tv;
               }
           
               private Button button(String value) {
                   Button b = new Button(this); b.setText(value); b.setTextSize(14); b.setAllCaps(false); b.setTextColor(Color.WHITE);
-                  GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.rgb(14, 165, 233), Color.rgb(16, 185, 129)});
-                  bg.setCornerRadius(22); b.setBackground(bg); b.setPadding(6, 8, 6, 8); return b;
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(Color.rgb(31, 41, 55)); bg.setStroke(1, Color.rgb(56, 189, 248)); bg.setCornerRadius(20);
+                  b.setBackground(bg); b.setPadding(6, 8, 6, 8); b.setMinHeight(44); return b;
               }
           
               private EditText inputBox(String hint) {
                   EditText e = new EditText(this); e.setHint(hint); e.setTextColor(Color.WHITE); e.setHintTextColor(Color.rgb(148, 163, 184)); e.setTextSize(16);
                   GradientDrawable bg = new GradientDrawable();
-                  bg.setColor(Color.rgb(15, 23, 42)); bg.setStroke(2, Color.rgb(51, 65, 85)); bg.setCornerRadius(18);
+                  bg.setColor(Color.rgb(17, 24, 39)); bg.setStroke(1, Color.rgb(55, 65, 81)); bg.setCornerRadius(20);
                   e.setBackground(bg); e.setPadding(16, 12, 16, 12);
                   e.setOnFocusChangeListener((view, hasFocus) -> { if (hasFocus) { view.postDelayed(() -> scrollFocusedInputIntoView(view), 300); } });
                   return e;
@@ -3086,12 +3126,13 @@ jobs:
               }
           
               private LinearLayout card() {
-                  LinearLayout card = new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL); card.setPadding(16, 14, 16, 14);
+                  LinearLayout card = new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL); card.setPadding(18, 16, 18, 16);
                   GradientDrawable bg = new GradientDrawable();
-                  bg.setColor(Color.rgb(15, 23, 42)); bg.setStroke(2, Color.rgb(51, 65, 85)); bg.setCornerRadius(18);
+                  bg.setColor(Color.rgb(17, 24, 39)); bg.setStroke(1, Color.rgb(39, 52, 73)); bg.setCornerRadius(24);
                   card.setBackground(bg);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) card.setElevation(2f);
                   LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                  lp.setMargins(0, 10, 0, 10); card.setLayoutParams(lp); return card;
+                  lp.setMargins(0, 8, 0, 12); card.setLayoutParams(lp); return card;
               }
           
               private LinearLayout labelWrap(String label, View child) {
@@ -3121,8 +3162,8 @@ jobs:
               <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
                   <item name="android:fontFamily">sans</item>
                   <item name="android:windowLightStatusBar">false</item>
-                  <item name="android:statusBarColor">#07111F</item>
-                  <item name="android:navigationBarColor">#07111F</item>
+                  <item name="android:statusBarColor">#0A0F19</item>
+                  <item name="android:navigationBarColor">#0A0F19</item>
                   <item name="android:colorAccent">#38BDF8</item>
               </style>
           </resources>
