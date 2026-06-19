@@ -1,4 +1,4 @@
-name: Build Android APK
+oname: Build Android APK
 
 on:
   push:
@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 57
-                  versionName "1.11.3"
+                  versionCode 58
+                  versionName "1.11.4"
               }
           
               compileOptions {
@@ -2294,7 +2294,6 @@ jobs:
                   if (key.isEmpty() || type.isEmpty()) return;
                   JSONArray array = loadArray(key);
                   sortPageIndex = clampPage(sortPageIndex, array.length());
-                  sortList.addView(pagerView("\u6392\u5e8f", sortPageIndex, pageCount(array.length()), () -> changeSortPage(-1), () -> changeSortPage(1)));
                   int start = sortPageIndex * PAGE_SIZE;
                   int end = Math.min(array.length(), start + PAGE_SIZE);
                   boolean virtualMoving = shouldResumeDrag && (sortResumeDragIndex < start || sortResumeDragIndex >= end);
@@ -2307,8 +2306,6 @@ jobs:
                       } catch (Exception ignored) {}
                   }
                   for (int i = start; i < end; i++) {
-                      if (virtualMoving && end - start >= PAGE_SIZE && sortResumeDirection > 0 && i == start) continue;
-                      if (virtualMoving && end - start >= PAGE_SIZE && sortResumeDirection < 0 && i == end - 1) continue;
                       try {
                           JSONObject obj = array.getJSONObject(i);
                           View child = "text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj);
@@ -2324,6 +2321,7 @@ jobs:
                           resumeView = child;
                       } catch (Exception ignored) {}
                   }
+                  sortList.addView(pagerView("\u6392\u5e8f", sortPageIndex, pageCount(array.length()), () -> changeSortPage(-1), () -> changeSortPage(1)));
                   if (shouldResumeDrag && resumeView != null) {
                       resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
                   } else if (shouldResumeDrag) {
@@ -3262,6 +3260,36 @@ jobs:
                   return moveItemToExactIndex(sortModeKey, from, target);
               }
           
+              private boolean commitCrossPageDrop(String key, int from, int to, int direction) {
+                  JSONArray source = loadArray(key);
+                  if (from < 0 || to < 0 || from >= source.length() || to > source.length()) return false;
+                  to = Math.max(0, Math.min(to, source.length() - 1));
+                  int originPage = Math.max(0, from / PAGE_SIZE);
+                  int targetPage = clampPage(sortPageIndex, source.length());
+                  if (originPage == targetPage || direction == 0) return moveItemToExactIndex(key, from, to);
+                  int targetStart = targetPage * PAGE_SIZE;
+                  int targetEnd = Math.min(source.length() - 1, targetStart + PAGE_SIZE - 1);
+                  int boundaryIndex = direction > 0 ? targetStart : targetEnd;
+                  if (boundaryIndex < 0 || boundaryIndex >= source.length() || boundaryIndex == from) return moveItemToExactIndex(key, from, to);
+                  try {
+                      JSONObject moving = source.getJSONObject(from);
+                      JSONObject boundary = source.getJSONObject(boundaryIndex);
+                      java.util.ArrayList<JSONObject> list = new java.util.ArrayList<>();
+                      for (int i = 0; i < source.length(); i++) {
+                          if (i == from || i == boundaryIndex) continue;
+                          list.add(source.getJSONObject(i));
+                      }
+                      int movingTo = Math.max(0, Math.min(to, list.size()));
+                      list.add(movingTo, moving);
+                      int originLast = Math.min((originPage + 1) * PAGE_SIZE - 1, list.size());
+                      list.add(originLast, boundary);
+                      JSONArray result = new JSONArray();
+                      for (JSONObject obj : list) result.put(obj);
+                      saveArray(key, result);
+                      return true;
+                  } catch (Exception ignored) { return false; }
+              }
+          
               private boolean isSortMode(String key, String type) {
                   return key.equals(sortModeKey) && type.equals(sortModeType);
               }
@@ -3485,9 +3513,13 @@ jobs:
               }
           
               private int computeSortPendingIndex(LinearLayout parent, View moving) {
-                  int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 1 : 1;
+                  int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 0 : 1;
                   int pageStart = isSortMode(sortModeKey, sortModeType) && parent == sortList ? sortPageIndex * PAGE_SIZE : 0;
-                  int itemCount = Math.max(0, parent.getChildCount() - headerCount);
+                  int itemCount = 0;
+                  for (int i = headerCount; i < parent.getChildCount(); i++) {
+                      Object childTag = parent.getChildAt(i).getTag();
+                      if (childTag instanceof Integer) itemCount++;
+                  }
                   if (itemCount <= 1) return sortDragOriginalIndex;
                   int[] movingLoc = new int[2];
                   moving.getLocationOnScreen(movingLoc);
@@ -3509,7 +3541,7 @@ jobs:
               }
           
               private void applyDodgeAnimation(LinearLayout parent, View moving, int fromIndex, int toIndex) {
-                  int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 1 : 1;
+                  int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 0 : 1;
                   int pageStart = isSortMode(sortModeKey, sortModeType) && parent == sortList ? sortPageIndex * PAGE_SIZE : 0;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
@@ -3538,12 +3570,13 @@ jobs:
                   moving.animate().translationY(0f).setDuration(160).withEndAction(() -> {
                       boolean moved;
                       if (sortCrossPagePending) {
-                          moved = moveItemToExactIndex(key, sortCrossPageFromIndex, to);
+                          moved = commitCrossPageDrop(key, sortCrossPageFromIndex, to, sortResumeDirection);
                       } else {
                           moved = moveItemSilently(key, from, to);
                       }
                       sortCrossPagePending = false;
                       sortCrossPageFromIndex = -1;
+                      sortResumeDirection = 0;
                       if (moved) {
                           renderSortPage();
                       }
