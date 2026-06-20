@@ -2322,6 +2322,11 @@ jobs:
                       sortActiveView = null;
                   }
                   // 移除旧的浮动拖拽视图
+                  // 方案A：拖拽恢复时先隐藏浮动视图，避免移除后重新添加时在原位置闪烁
+                  View oldFloatingView = sortFloatingView;
+                  if (shouldResumeDrag && sortFloatingView != null) {
+                      sortFloatingView.setAlpha(0f);
+                  }
                   if (sortFloatingView != null && sortFloatingView.getParent() != null) {
                       ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
                   }
@@ -2339,7 +2344,7 @@ jobs:
                   boolean virtualMoving = shouldResumeDrag && (sortResumeDragIndex < start || sortResumeDragIndex >= end);
                   // 目标页只渲染本页原有条目，不包含被拖拽条目
                   // 拖回原页时，被拖拽条目位置渲染占位视图保持高度
-                  boolean isReturningHome = shouldResumeDrag && sortCrossPagePending && sortFloatingView != null
+                  boolean isReturningHome = shouldResumeDrag && sortCrossPagePending && oldFloatingView != null
                           && sortResumeDragIndex >= start && sortResumeDragIndex < end;
                   for (int i = start; i < end; i++) {
                       try {
@@ -2357,8 +2362,6 @@ jobs:
                           sortList.addView(child);
                           if (shouldResumeDrag && i == sortResumeDragIndex) {
                               resumeView = child;
-                              // 方案A：初始隐藏resumeView，避免在resumeSortDrag调整位置前显示在原位置造成闪烁
-                              child.setAlpha(0f);
                           }
                       } catch (Exception ignored) {}
                   }
@@ -2367,13 +2370,15 @@ jobs:
                       // 同页恢复：直接恢复拖拽
                       // 如果从其他页拖回原页，浮动视图保持浮动，不插入列表
                       // 原页第一条位置自然空缺，其余条目保持原位
-                      if (sortCrossPagePending && sortFloatingView != null) {
-                          // 浮动视图已经在 sortPage 上，不需要任何转换
-                          // 原页渲染时不包含被拖拽条目，第一条位置自然空缺
+                      if (isReturningHome && oldFloatingView != null) {
+                          // 拖回原页：恢复浮动视图到 sortPage，不渲染到列表中
+                          // 浮动视图已被方案A隐藏（alpha=0），resumeSortDrag会恢复显示
+                          sortFloatingView = oldFloatingView;
+                          sortPage.addView(oldFloatingView);
                           sortCrossPagePending = false;
                           sortResumeDirection = 0;
                           sortCrossPageFromIndex = sortResumeDragIndex;
-                          resumeSortDrag(sortFloatingView, sortResumeDragIndex, sortResumeRawY);
+                          resumeSortDrag(oldFloatingView, sortResumeDragIndex, sortResumeRawY);
                       } else {
                           resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
                       }
@@ -3517,8 +3522,10 @@ jobs:
                   } else {
                       alignSortDragToFinger(view, rawY);
                   }
-                  // 方案A：无论之前是否隐藏，调整好位置后显示视图
-                  view.setAlpha(0.96f);
+                  // 方案A：布局就绪时显示视图；布局未就绪时保持隐藏，等post()回调后显示
+                  if (layoutReady) {
+                      view.setAlpha(0.96f);
+                  }
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
                   view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
                   LinearLayout p = sortList;
@@ -3911,12 +3918,11 @@ jobs:
                   View active = sortActiveView;
                   if (active != null) {
                       active.animate().cancel();
-                      // 不要重置translationY，保持浮动视图相对于屏幕的位置
-                      // 这样换页后视图仍然在手指附近，不会闪回原位置
-                      active.setAlpha(0.96f);
-                      active.setScaleX(1.04f);
-                      active.setScaleY(1.04f);
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) active.setElevation(18f);
+                      active.setTranslationY(0f);
+                      active.setAlpha(1f);
+                      active.setScaleX(1f);
+                      active.setScaleY(1f);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) active.setElevation(6f);
                   }
                   sortAutoPageDirection = 0;
                   sortAutoPageSince = 0L;
