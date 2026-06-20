@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 66
-                  versionName "1.12.2"
+                  versionCode 68
+                  versionName "1.14.0"
               }
           
               compileOptions {
@@ -207,25 +207,15 @@ jobs:
           import android.content.Intent;
           import android.content.SharedPreferences;
           import android.os.Build;
-          import android.os.PowerManager;
           
           import org.json.JSONArray;
           import org.json.JSONObject;
-          
-          import java.util.Calendar;
           
           public class AlarmReceiver extends BroadcastReceiver {
               private static final String PREF = "phone_helper_pref";
           
               @Override
               public void onReceive(Context context, Intent intent) {
-                  PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
-                  PowerManager.WakeLock wl = pm.newWakeLock(
-                      PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                      "PhoneHelper:AlarmWakeLock"
-                  );
-                  wl.acquire(10000);
-          
                   int alarmId = intent.getIntExtra("alarmId", 0);
                   JSONObject alarm = findAlarm(context, alarmId);
                   String label = alarm != null ? alarm.optString("label", "闹钟") : "闹钟";
@@ -245,8 +235,6 @@ jobs:
                   ring.putExtra("toneUri", toneUri);
                   ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
                   try { context.startActivity(ring); } catch (Exception e) {}
-          
-                  wl.release();
               }
           
               private JSONObject findAlarm(Context context, int alarmId) {
@@ -271,7 +259,7 @@ jobs:
                           if (a.optInt("id", 0) != alarmId) continue;
                           String repeatDays = a.optString("repeatDays", "");
                           if (a.optBoolean("repeatDaily", false) || !repeatDays.isEmpty()) {
-                              long nextAt = nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), repeatDays);
+                              long nextAt = AlarmUtils.nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), repeatDays);
                               a.put("nextAt", nextAt);
                               alarms.put(i, a);
                               pref.edit().putString("systemAlarms", alarms.toString()).apply();
@@ -284,29 +272,6 @@ jobs:
                           break;
                       }
                   } catch (Exception ignored) {}
-              }
-          
-              private long nextAlarmTime(int hour, int minute, String repeatDays) {
-                  Calendar c = Calendar.getInstance();
-                  c.set(Calendar.HOUR_OF_DAY, hour);
-                  c.set(Calendar.MINUTE, minute);
-                  c.set(Calendar.SECOND, 0);
-                  c.set(Calendar.MILLISECOND, 0);
-                  long now = System.currentTimeMillis();
-                  if (repeatDays == null || repeatDays.trim().isEmpty()) {
-                      c.add(Calendar.DAY_OF_MONTH, 1);
-                      return c.getTimeInMillis();
-                  }
-                  for (int d = 0; d <= 7; d++) {
-                      Calendar candidate = (Calendar) c.clone();
-                      candidate.add(Calendar.DAY_OF_MONTH, d);
-                      int dayIndex = (candidate.get(Calendar.DAY_OF_WEEK) + 5) % 7; // 周一=0，周日=6
-                      if (repeatDays.contains(String.valueOf(dayIndex)) && candidate.getTimeInMillis() > now) {
-                          return candidate.getTimeInMillis();
-                      }
-                  }
-                  c.add(Calendar.DAY_OF_MONTH, 1);
-                  return c.getTimeInMillis();
               }
           
               public static void scheduleExactAlarm(Context context, JSONObject alarm) {
@@ -508,12 +473,14 @@ jobs:
           import android.net.Uri;
           import android.os.Build;
           import android.os.IBinder;
+          import android.os.PowerManager;
           import android.os.Vibrator;
           
           public class AlarmSoundService extends Service {
               private static final String CHANNEL_ID = "phone_helper_alarm";
               private MediaPlayer mediaPlayer;
               private Vibrator vibrator;
+              private PowerManager.WakeLock wakeLock;
           
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
@@ -524,6 +491,11 @@ jobs:
                   if (alarmId < 1) alarmId = 1;
           
                   startForeground(alarmId, buildNotification(alarmId, label));
+                  PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                  if (pm != null) {
+                      wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "PhoneHelper:AlarmWakeLock");
+                      wakeLock.acquire(60000);
+                  }
                   startSound(toneUri);
                   startVibrate();
                   return START_NOT_STICKY;
@@ -616,12 +588,66 @@ jobs:
                   super.onDestroy();
                   try { if (mediaPlayer != null) { mediaPlayer.stop(); mediaPlayer.release(); } } catch (Exception ignored) {}
                   try { if (vibrator != null) vibrator.cancel(); } catch (Exception ignored) {}
+                  try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) {}
               }
           
               @Override
               public IBinder onBind(Intent intent) { return null; }
           }
           
+          FILEEOF
+
+          mkdir -p app/src/main/java/com/trae/phonehelper
+          cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/AlarmUtils.java
+          package com.trae.phonehelper;
+
+          import java.time.DayOfWeek;
+          import java.time.LocalDate;
+          import java.time.LocalDateTime;
+          import java.time.LocalTime;
+          import java.time.ZoneId;
+          import java.time.ZonedDateTime;
+
+          public class AlarmUtils {
+              /**
+               * 统一的闹钟下次触发时间计算。
+               * 使用 java.time API，正确处理跨时区和夏令时切换。
+               *
+               * @param hour       闹钟小时（0-23）
+               * @param minute     闹钟分钟（0-59）
+               * @param repeatDays 重复日期字符串，如 "0,1,2,3,4"（周一到周五），周一=0，周日=6
+               *                   空字符串或 null 表示不重复（仅响一次）
+               * @return 下次闹钟触发的毫秒时间戳
+               */
+              public static long nextAlarmTime(int hour, int minute, String repeatDays) {
+                  LocalTime target = LocalTime.of(hour, minute);
+                  ZoneId zone = ZoneId.systemDefault();
+                  LocalDateTime now = LocalDateTime.now(zone);
+                  LocalDate today = now.toLocalDate();
+                  LocalDateTime candidate = LocalDateTime.of(today, target);
+
+                  if (repeatDays != null && !repeatDays.trim().isEmpty()) {
+                      // 有重复日期：从今天开始往后找 7 天内最近的匹配日
+                      for (int d = 0; d <= 7; d++) {
+                          LocalDate checkDate = today.plusDays(d);
+                          DayOfWeek dow = checkDate.getDayOfWeek();
+                          int dayIndex = (dow.getValue() + 5) % 7; // DayOfWeek.MONDAY=1 → 0, SUNDAY=7 → 6
+                          if (repeatDays.contains(String.valueOf(dayIndex))) {
+                              LocalDateTime check = LocalDateTime.of(checkDate, target);
+                              if (check.isAfter(now)) {
+                                  return ZonedDateTime.of(check, zone).toInstant().toEpochMilli();
+                              }
+                          }
+                      }
+                  }
+
+                  // 不重复或没找到匹配日：如果今天的时间已过，推迟到明天
+                  if (!candidate.isAfter(now)) {
+                      candidate = candidate.plusDays(1);
+                  }
+                  return ZonedDateTime.of(candidate, zone).toInstant().toEpochMilli();
+              }
+          }
           FILEEOF
 
           mkdir -p app/src/main/java/com/trae/phonehelper
@@ -635,8 +661,6 @@ jobs:
           
           import org.json.JSONArray;
           import org.json.JSONObject;
-          
-          import java.util.Calendar;
           
           public class BootReceiver extends BroadcastReceiver {
               private static final String PREF = "phone_helper_pref";
@@ -660,7 +684,7 @@ jobs:
                           if (alarm.optBoolean("enabled", false)) {
                               long nextAt = alarm.optLong("nextAt", 0);
                               if (nextAt <= System.currentTimeMillis()) {
-                                  nextAt = computeNextAt(alarm.optInt("hour", 7), alarm.optInt("minute", 0), alarm.optString("repeatDays", ""));
+                                  nextAt = AlarmUtils.nextAlarmTime(alarm.optInt("hour", 7), alarm.optInt("minute", 0), alarm.optString("repeatDays", ""));
                                   alarm.put("nextAt", nextAt);
                               }
                               AlarmReceiver.scheduleExactAlarm(context, alarm);
@@ -669,29 +693,6 @@ jobs:
                       }
                       pref.edit().putString("systemAlarms", alarms.toString()).apply();
                   } catch (Exception ignored) {}
-              }
-          
-              private long computeNextAt(int hour, int minute, String repeatDays) {
-                  Calendar c = Calendar.getInstance();
-                  c.set(Calendar.HOUR_OF_DAY, hour);
-                  c.set(Calendar.MINUTE, minute);
-                  c.set(Calendar.SECOND, 0);
-                  c.set(Calendar.MILLISECOND, 0);
-                  if (repeatDays != null && !repeatDays.trim().isEmpty()) {
-                      long now = System.currentTimeMillis();
-                      for (int d = 0; d <= 7; d++) {
-                          Calendar candidate = (Calendar) c.clone();
-                          candidate.add(Calendar.DAY_OF_MONTH, d);
-                          int dayIndex = (candidate.get(Calendar.DAY_OF_WEEK) + 5) % 7;
-                          if (repeatDays.contains(String.valueOf(dayIndex)) && candidate.getTimeInMillis() > now) {
-                              return candidate.getTimeInMillis();
-                          }
-                      }
-                  }
-                  if (c.getTimeInMillis() <= System.currentTimeMillis()) {
-                      c.add(Calendar.DAY_OF_MONTH, 1);
-                  }
-                  return c.getTimeInMillis();
               }
           }
           
@@ -751,7 +752,12 @@ jobs:
           import java.net.URL;
           import java.nio.charset.StandardCharsets;
           import java.text.SimpleDateFormat;
-          import java.util.Calendar;
+          import java.time.DayOfWeek;
+          import java.time.LocalDate;
+          import java.time.LocalDateTime;
+          import java.time.LocalTime;
+          import java.time.ZoneId;
+          import java.time.ZonedDateTime;
           import java.util.Date;
           import java.util.Locale;
           
@@ -961,6 +967,9 @@ jobs:
                   saveTimerState();
                   savePomoState();
                   reconcileAlarmSchedules();
+                  // 切到后台时停止排序自动滚动和 AI 打字机，避免内存泄漏和无效回调
+                  stopSortAutoScroll();
+                  stopAiTypewriter();
               }
           
               @Override
@@ -979,6 +988,7 @@ jobs:
                   reconcileAlarmSchedules();
                   handler.removeCallbacks(tick);
                   stopAiTypewriter();
+                  stopSortAutoScroll();
               }
           
               private void buildUi() {
@@ -1436,7 +1446,7 @@ jobs:
                       a.put("label", label);
                       a.put("repeatDays", repeatDays);
                       a.put("repeatDaily", allWeekDays().equals(repeatDays));
-                      a.put("nextAt", nextAlarmTime(hour, minute, repeatDays));
+                      a.put("nextAt", AlarmUtils.nextAlarmTime(hour, minute, repeatDays));
                       alarms.put(index, a);
                       saveArray("systemAlarms", alarms);
                       if (a.optBoolean("enabled", true)) AlarmReceiver.scheduleExactAlarm(this, a);
@@ -1458,7 +1468,7 @@ jobs:
                       a.put("repeatDays", repeatDays);
                       a.put("repeatDaily", allWeekDays().equals(repeatDays));
                       a.put("toneUri", toneUri != null ? toneUri : "");
-                      a.put("nextAt", nextAlarmTime(hour, minute, repeatDays));
+                      a.put("nextAt", AlarmUtils.nextAlarmTime(hour, minute, repeatDays));
                       alarms.put(a);
                       saveArray("systemAlarms", alarms);
                       AlarmReceiver.scheduleExactAlarm(this, a);
@@ -1494,7 +1504,7 @@ jobs:
                           }
                           long nextAt = a.optLong("nextAt", 0);
                           if (nextAt <= now) {
-                              a.put("nextAt", nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), rd));
+                              a.put("nextAt", AlarmUtils.nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), rd));
                               changed = true;
                           }
                           AlarmReceiver.scheduleExactAlarm(this, a);
@@ -1533,7 +1543,7 @@ jobs:
                               rd = allWeekDays();
                               a.put("repeatDays", rd);
                           }
-                          if (chk) a.put("nextAt", nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), rd));
+                          if (chk) a.put("nextAt", AlarmUtils.nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), rd));
                           alarms.put(index, a);
                           saveArray("systemAlarms", alarms);
                           if (chk) { AlarmReceiver.scheduleExactAlarm(MainActivity.this, a); }
@@ -1923,27 +1933,6 @@ jobs:
                   alarmStatusText.setText(sb.toString());
               }
           
-              private long nextAlarmTime(int hour, int minute, String repeatDays) {
-                  Calendar c = Calendar.getInstance();
-                  c.set(Calendar.HOUR_OF_DAY, hour);
-                  c.set(Calendar.MINUTE, minute);
-                  c.set(Calendar.SECOND, 0);
-                  c.set(Calendar.MILLISECOND, 0);
-                  if (repeatDays != null && !repeatDays.trim().isEmpty()) {
-                      long now = System.currentTimeMillis();
-                      for (int d = 0; d <= 7; d++) {
-                          Calendar candidate = (Calendar) c.clone();
-                          candidate.add(Calendar.DAY_OF_MONTH, d);
-                          int dayIndex = (candidate.get(Calendar.DAY_OF_WEEK) + 5) % 7; // 周一=0，周日=6
-                          if (repeatDays.contains(String.valueOf(dayIndex)) && candidate.getTimeInMillis() > now) {
-                              return candidate.getTimeInMillis();
-                          }
-                      }
-                  }
-                  if (c.getTimeInMillis() <= System.currentTimeMillis()) c.add(Calendar.DAY_OF_MONTH, 1);
-                  return c.getTimeInMillis();
-              }
-          
               private String formatAlarmTime(long ms) {
                   return new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(new Date(ms));
               }
@@ -2107,11 +2096,21 @@ jobs:
               private void exportBackup(Uri uri) {
                   try (OutputStream os = getContentResolver().openOutputStream(uri)) {
                       if (os == null) { toast("\u65e0\u6cd5\u521b\u5efa\u5907\u4efd\u6587\u4ef6"); return; }
+                      JSONArray texts = loadArray("texts");
+                      JSONArray links = loadArray("links");
+                      JSONArray alarms = loadArray("systemAlarms");
                       JSONObject backup = new JSONObject();
-                      backup.put("version", 1);
-                      backup.put("texts", loadArray("texts"));
-                      backup.put("links", loadArray("links"));
-                      backup.put("systemAlarms", loadArray("systemAlarms"));
+                      backup.put("version", 2);
+                      backup.put("app", "PhoneHelperToolbox");
+                      backup.put("texts", texts);
+                      backup.put("links", links);
+                      backup.put("systemAlarms", alarms);
+                      // 校验字段：记录各数组的条目数，导入时用于快速校验完整性
+                      JSONObject checksum = new JSONObject();
+                      checksum.put("texts", texts.length());
+                      checksum.put("links", links.length());
+                      checksum.put("systemAlarms", alarms.length());
+                      backup.put("checksum", checksum);
                       os.write(backup.toString(2).getBytes(StandardCharsets.UTF_8));
                       showStatus("\u5907\u4efd\u5df2\u5bfc\u51fa");
                   } catch (Exception e) { showStatus("\u5bfc\u51fa\u5931\u8d25\uff1a" + shortError(e.getMessage())); }
@@ -2120,10 +2119,43 @@ jobs:
               private void importBackup(Uri uri) {
                   try (InputStream is = getContentResolver().openInputStream(uri)) {
                       if (is == null) { toast("\u65e0\u6cd5\u8bfb\u53d6\u5907\u4efd\u6587\u4ef6"); return; }
-                      JSONObject backup = new JSONObject(readAll(is));
+                      String raw = readAll(is);
+                      JSONObject backup;
+                      try {
+                          backup = new JSONObject(raw);
+                      } catch (Exception e) {
+                          showStatus("\u5bfc\u5165\u5931\u8d25\uff1a\u6587\u4ef6\u4e0d\u662f\u6709\u6548\u7684 JSON \u683c\u5f0f\uff0c\u53ef\u80fd\u5df2\u635f\u574f");
+                          return;
+                      }
+                      // 校验备份来源
+                      if (!"PhoneHelperToolbox".equals(backup.optString("app"))) {
+                          showStatus("\u5bfc\u5165\u5931\u8d25\uff1a\u8be5\u6587\u4ef6\u4e0d\u662f\u672c App \u7684\u5907\u4efd\u6587\u4ef6");
+                          return;
+                      }
+                      int version = backup.optInt("version", 0);
+                      if (version < 1 || version > 2) {
+                          showStatus("\u5bfc\u5165\u5931\u8d25\uff1a\u4e0d\u652f\u6301\u8be5\u7248\u672c\u7684\u5907\u4efd\u6587\u4ef6\uff08\u7248\u672c " + version + "\uff09");
+                          return;
+                      }
                       JSONArray texts = backup.optJSONArray("texts");
                       JSONArray links = backup.optJSONArray("links");
                       JSONArray alarms = backup.optJSONArray("systemAlarms");
+                      // 校验数据完整性
+                      JSONObject checksum = backup.optJSONObject("checksum");
+                      if (checksum != null) {
+                          boolean dataCorrupt = false;
+                          if (texts != null && checksum.optInt("texts", -1) != texts.length()) dataCorrupt = true;
+                          if (links != null && checksum.optInt("links", -1) != links.length()) dataCorrupt = true;
+                          if (alarms != null && checksum.optInt("systemAlarms", -1) != alarms.length()) dataCorrupt = true;
+                          if (dataCorrupt) {
+                              showStatus("\u5bfc\u5165\u5931\u8d25\uff1a\u5907\u4efd\u6587\u4ef6\u6570\u636e\u4e0d\u5b8c\u6574\uff0c\u53ef\u80fd\u5df2\u635f\u574f");
+                              return;
+                          }
+                      }
+                      if (texts == null && links == null && alarms == null) {
+                          showStatus("\u5bfc\u5165\u5931\u8d25\uff1a\u5907\u4efd\u6587\u4ef6\u4e2d\u6ca1\u6709\u53ef\u6062\u590d\u7684\u6570\u636e");
+                          return;
+                      }
                       if (texts != null) saveArray("texts", texts);
                       if (links != null) saveArray("links", links);
                       if (alarms != null) {
