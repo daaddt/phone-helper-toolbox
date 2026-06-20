@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 68
-                  versionName "1.14.0"
+                  versionCode 69
+                  versionName "1.15.0"
               }
           
               compileOptions {
@@ -3464,8 +3464,6 @@ jobs:
               }
           
               private void resumeSortDrag(View view, int index, float rawY) {
-                  LinearLayout parent = view.getParent() instanceof LinearLayout ? (LinearLayout) view.getParent() : null;
-                  if (parent == null) return;
                   sortActiveView = view;
                   sortDragging = true;
                   sortDragArmed = true;
@@ -3482,11 +3480,15 @@ jobs:
                   view.setAlpha(0.96f);
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
                   view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
-                  LinearLayout p = view.getParent() instanceof LinearLayout ? (LinearLayout) view.getParent() : null;
-                  if (p != null) {
-                      int target2 = computeSortPendingIndex(p, view);
-                      sortDragPendingIndex = target2;
-                      applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
+                  // 跨页模式下不立即计算 pendingIndex 和触发躲闪动画
+                  // 等手指实际移动后再计算，避免浮动视图未布局时位置不准
+                  if (!sortCrossPagePending) {
+                      LinearLayout p = sortList;
+                      if (p != null) {
+                          int target2 = computeSortPendingIndex(p, view);
+                          sortDragPendingIndex = target2;
+                          applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
+                      }
                   }
                   view.post(() -> {
                       if (sortActiveView != view || !sortDragArmed) return;
@@ -3600,6 +3602,23 @@ jobs:
                   moving.getLocationOnScreen(movingLoc);
                   float movingBaseTop = movingLoc[1] - moving.getTranslationY();
                   float movingCenterY = movingBaseTop + moving.getTranslationY() + moving.getHeight() / 2f;
+                  float movingBottom = movingBaseTop + moving.getTranslationY() + moving.getHeight();
+                  // 跨页模式：找到目标页第一条目的顶部位置
+                  float firstItemTop = Float.MAX_VALUE;
+                  for (int i = headerCount; i < parent.getChildCount(); i++) {
+                      View child = parent.getChildAt(i);
+                      if (child == moving) continue;
+                      Object childTag = child.getTag();
+                      if (!(childTag instanceof Integer)) continue;
+                      int[] loc = new int[2];
+                      child.getLocationOnScreen(loc);
+                      float top = loc[1] - child.getTranslationY();
+                      if (top < firstItemTop) firstItemTop = top;
+                  }
+                  // 跨页模式下，拖拽条目底部未碰到目标页第一条顶部时，不触发任何让位
+                  if (sortCrossPagePending && movingBottom < firstItemTop) {
+                      return sortDragOriginalIndex;
+                  }
                   int result = 0;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
@@ -3637,6 +3656,31 @@ jobs:
                       else if (fromIndex > toIndex && childIndex >= toIndex && childIndex < fromIndex) shift = sortDragItemHeight;
                       child.animate().cancel();
                       child.animate().translationY(shift).setDuration(170).start();
+                  }
+                  // 跨页模式下，目标页条目整体下移时，也让 pagerView（三按键）和功能介绍一起下移
+                  if (sortCrossPagePending) {
+                      boolean anyShifted = false;
+                      for (int i = headerCount; i < parent.getChildCount(); i++) {
+                          View child = parent.getChildAt(i);
+                          Object childTag = child.getTag();
+                          if (childTag instanceof Integer) {
+                              int childIndex = ((Integer) childTag).intValue();
+                              if (childIndex >= Math.max(toIndex, pageStart) && childIndex <= pageEnd) {
+                                  anyShifted = true;
+                                  break;
+                              }
+                          }
+                      }
+                      if (anyShifted) {
+                          for (int i = headerCount; i < parent.getChildCount(); i++) {
+                              View child = parent.getChildAt(i);
+                              Object childTag = child.getTag();
+                              if (childTag instanceof Integer) continue;
+                              // pagerView 和功能介绍等非条目视图也跟着下移
+                              child.animate().cancel();
+                              child.animate().translationY(sortDragItemHeight).setDuration(170).start();
+                          }
+                      }
                   }
               }
           
