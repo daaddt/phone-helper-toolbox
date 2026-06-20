@@ -2321,8 +2321,6 @@ jobs:
                       sortDragMoved = false;
                       sortActiveView = null;
                   }
-                  // 保存旧浮动视图引用，用于判断是否拖回原页
-                  View oldFloatingView = sortFloatingView;
                   // 移除旧的浮动拖拽视图
                   if (sortFloatingView != null && sortFloatingView.getParent() != null) {
                       ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
@@ -2341,7 +2339,7 @@ jobs:
                   boolean virtualMoving = shouldResumeDrag && (sortResumeDragIndex < start || sortResumeDragIndex >= end);
                   // 目标页只渲染本页原有条目，不包含被拖拽条目
                   // 拖回原页时，被拖拽条目位置渲染占位视图保持高度
-                  boolean isReturningHome = shouldResumeDrag && sortCrossPagePending && oldFloatingView != null
+                  boolean isReturningHome = shouldResumeDrag && sortCrossPagePending && sortFloatingView != null
                           && sortResumeDragIndex >= start && sortResumeDragIndex < end;
                   for (int i = start; i < end; i++) {
                       try {
@@ -2365,14 +2363,13 @@ jobs:
                       // 同页恢复：直接恢复拖拽
                       // 如果从其他页拖回原页，浮动视图保持浮动，不插入列表
                       // 原页第一条位置自然空缺，其余条目保持原位
-                      if (isReturningHome && oldFloatingView != null) {
-                          // 拖回原页：恢复浮动视图到 sortPage，不渲染到列表中
-                          sortFloatingView = oldFloatingView;
-                          sortPage.addView(oldFloatingView);
+                      if (sortCrossPagePending && sortFloatingView != null) {
+                          // 浮动视图已经在 sortPage 上，不需要任何转换
+                          // 原页渲染时不包含被拖拽条目，第一条位置自然空缺
                           sortCrossPagePending = false;
                           sortResumeDirection = 0;
                           sortCrossPageFromIndex = sortResumeDragIndex;
-                          resumeSortDrag(oldFloatingView, sortResumeDragIndex, sortResumeRawY);
+                          resumeSortDrag(sortFloatingView, sortResumeDragIndex, sortResumeRawY);
                       } else {
                           resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
                       }
@@ -3904,11 +3901,16 @@ jobs:
                   View active = sortActiveView;
                   if (active != null) {
                       active.animate().cancel();
-                      active.setTranslationY(0f);
                       active.setAlpha(1f);
                       active.setScaleX(1f);
                       active.setScaleY(1f);
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) active.setElevation(6f);
+                      // 将拖拽视图从当前父容器移除，保存为浮动视图供跨页使用
+                      // 避免拖回原页时视图在原位置闪烁
+                      if (active.getParent() != null) {
+                          ((android.view.ViewGroup) active.getParent()).removeView(active);
+                      }
+                      sortFloatingView = active;
                   }
                   sortAutoPageDirection = 0;
                   sortAutoPageSince = 0L;
