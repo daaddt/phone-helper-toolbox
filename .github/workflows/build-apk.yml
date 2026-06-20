@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 79
-                  versionName "1.16.0"
+                  versionCode 80
+                  versionName "1.16.1"
               }
           
               compileOptions {
@@ -2338,8 +2338,20 @@ jobs:
                   int end = Math.min(array.length(), start + PAGE_SIZE);
                   boolean virtualMoving = shouldResumeDrag && (sortResumeDragIndex < start || sortResumeDragIndex >= end);
                   // 目标页只渲染本页原有条目，不包含被拖拽条目
+                  // 拖回原页时，被拖拽条目位置渲染占位视图保持高度
+                  boolean isReturningHome = shouldResumeDrag && sortCrossPagePending && sortFloatingView != null
+                          && sortResumeDragIndex >= start && sortResumeDragIndex < end;
                   for (int i = start; i < end; i++) {
                       try {
+                          if (isReturningHome && i == sortResumeDragIndex) {
+                              // 拖回原页：渲染占位视图保持高度，第一条位置自然空缺
+                              View placeholder = new LinearLayout(this);
+                              placeholder.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(58)));
+                              placeholder.setTag(Integer.valueOf(i));
+                              sortList.addView(placeholder);
+                              resumeView = placeholder;
+                              continue;
+                          }
                           JSONObject obj = array.getJSONObject(i);
                           View child = "text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj);
                           sortList.addView(child);
@@ -3487,8 +3499,17 @@ jobs:
                   disallowParentIntercept(view, true);
                   setSortControlsEnabled(false);
                   view.animate().cancel();
+                  // 先检查布局是否完成，如果未完成先隐藏，等 post() 后再显示
+                  int[] loc = new int[2];
+                  view.getLocationOnScreen(loc);
+                  boolean layoutReady = loc[1] > 0 || view.getHeight() > 0;
+                  if (!layoutReady) {
+                      view.setAlpha(0f);
+                  }
                   alignSortDragToFinger(view, rawY);
-                  view.setAlpha(0.96f);
+                  if (layoutReady) {
+                      view.setAlpha(0.96f);
+                  }
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
                   view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
                   LinearLayout p = sortList;
@@ -3500,6 +3521,7 @@ jobs:
                   view.post(() -> {
                       if (sortActiveView != view || !sortDragArmed) return;
                       alignSortDragToFinger(view, rawY);
+                      view.setAlpha(0.96f);
                   });
               }
           
@@ -3638,6 +3660,7 @@ jobs:
                   moving.getLocationOnScreen(movingLoc);
                   float movingBaseTop = movingLoc[1] - moving.getTranslationY();
                   float movingCenterY = movingBaseTop + moving.getTranslationY() + moving.getHeight() / 2f;
+                  float movingBottom = movingBaseTop + moving.getTranslationY() + moving.getHeight();
                   int result = 0;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
@@ -3648,7 +3671,9 @@ jobs:
                       child.getLocationOnScreen(loc);
                       float baseTop = loc[1] - child.getTranslationY();
                       float centerY = baseTop + child.getHeight() / 2f;
-                      if (movingCenterY > centerY) result++;
+                      // 跨页模式：用底部超过中心来判断，更敏感，能在条目上半部分就触发换位
+                      if (isFloating && movingBottom > centerY) result++;
+                      else if (!isFloating && movingCenterY > centerY) result++;
                   }
                   int maxTarget = pageStart + itemCount;
                   return Math.max(pageStart, Math.min(maxTarget, pageStart + result));
