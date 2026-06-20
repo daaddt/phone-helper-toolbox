@@ -3911,11 +3911,12 @@ jobs:
                   View active = sortActiveView;
                   if (active != null) {
                       active.animate().cancel();
-                      active.setTranslationY(0f);
-                      active.setAlpha(1f);
-                      active.setScaleX(1f);
-                      active.setScaleY(1f);
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) active.setElevation(6f);
+                      // 不要重置translationY，保持浮动视图相对于屏幕的位置
+                      // 这样换页后视图仍然在手指附近，不会闪回原位置
+                      active.setAlpha(0.96f);
+                      active.setScaleX(1.04f);
+                      active.setScaleY(1.04f);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) active.setElevation(18f);
                   }
                   sortAutoPageDirection = 0;
                   sortAutoPageSince = 0L;
