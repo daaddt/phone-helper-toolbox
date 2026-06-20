@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 70
-                  versionName "1.15.1"
+                  versionCode 71
+                  versionName "1.15.2"
               }
           
               compileOptions {
@@ -2365,6 +2365,10 @@ jobs:
                           sortFloatingView = null;
                           sortCrossPagePending = false;
                           sortResumeDirection = 0;
+                          // 拖回原页后，把 sortDragOriginalIndex 设为等效位置（当前页内的索引）
+                          // 这样 applyDodgeAnimation 会按同页逻辑处理，实现一一交换效果
+                          sortCrossPageFromIndex = sortResumeDragIndex; // 保留原始索引用于最终提交
+                          sortResumeDragIndex = start + idx; // 等效位置
                       }
                       resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
                   } else if (shouldResumeDrag && virtualMoving) {
@@ -3518,20 +3522,12 @@ jobs:
                   int h = view.getHeight() > 0 ? view.getHeight() : dpToPx(58);
                   int[] loc = new int[2];
                   view.getLocationOnScreen(loc);
-                  float baseTop = loc[1];
-                  if (baseTop <= 0 && view.getParent() instanceof LinearLayout) {
-                      LinearLayout parent = (LinearLayout) view.getParent();
-                      int[] parentLoc = new int[2];
-                      parent.getLocationOnScreen(parentLoc);
-                      int childTop = 0;
-                      for (int i = 0; i < parent.getChildCount(); i++) {
-                          View child = parent.getChildAt(i);
-                          if (child == view) break;
-                          int childH = child.getHeight();
-                          if (childH <= 0 && child.getLayoutParams() != null && child.getLayoutParams().height > 0) childH = child.getLayoutParams().height;
-                          childTop += Math.max(0, childH);
-                      }
-                      baseTop = parentLoc[1] + childTop;
+                  float baseTop = loc[1] - view.getTranslationY();
+                  // 如果视图未布局（位置为0且不在屏幕顶部），用 sortDragStartRawY 推算
+                  if (baseTop <= 0) {
+                      // 此时无法确定视图默认位置，先不设置 translationY
+                      // 等 post() 回调时视图已完成布局，再正确计算
+                      return;
                   }
                   float desiredTranslation = rawY - (baseTop + h / 2f);
                   sortDragStartRawY = rawY - desiredTranslation;
@@ -3615,27 +3611,30 @@ jobs:
                       if (childTag instanceof Integer && parent.getChildAt(i) != moving) itemCount++;
                   }
                   if (itemCount <= 1) return sortDragOriginalIndex;
+
+                  // 跨页模式：浮动视图不在 sortList 中，用相对于 sortList 的 Y 位置计算插缝
+                  if (sortCrossPagePending && moving.getParent() != parent) {
+                      int[] listLoc = new int[2];
+                      parent.getLocationOnScreen(listLoc);
+                      int[] movingLoc = new int[2];
+                      moving.getLocationOnScreen(movingLoc);
+                      float movingCenterY = movingLoc[1] + moving.getTranslationY() + moving.getHeight() / 2f;
+                      float relativeY = movingCenterY - listLoc[1];
+                      // 只有当浮动视图中心进入 sortList 区域（relativeY >= 0）才开始计算插缝
+                      // 否则返回 pageStart - 1，表示还未进入目标页，不触发躲闪
+                      if (relativeY < 0) {
+                          return pageStart - 1;
+                      }
+                      int slot = (int) (relativeY / Math.max(1f, sortDragItemHeight));
+                      // 限制在目标页范围内
+                      return Math.max(pageStart, Math.min(pageStart + itemCount, pageStart + slot));
+                  }
+
+                  // 同页模式：正常的屏幕坐标比较
                   int[] movingLoc = new int[2];
                   moving.getLocationOnScreen(movingLoc);
                   float movingBaseTop = movingLoc[1] - moving.getTranslationY();
                   float movingCenterY = movingBaseTop + moving.getTranslationY() + moving.getHeight() / 2f;
-                  float movingBottom = movingBaseTop + moving.getTranslationY() + moving.getHeight();
-                  // 跨页模式：找到目标页第一条目的顶部位置
-                  float firstItemTop = Float.MAX_VALUE;
-                  for (int i = headerCount; i < parent.getChildCount(); i++) {
-                      View child = parent.getChildAt(i);
-                      if (child == moving) continue;
-                      Object childTag = child.getTag();
-                      if (!(childTag instanceof Integer)) continue;
-                      int[] loc = new int[2];
-                      child.getLocationOnScreen(loc);
-                      float top = loc[1] - child.getTranslationY();
-                      if (top < firstItemTop) firstItemTop = top;
-                  }
-                  // 跨页模式下，拖拽条目底部未碰到目标页第一条顶部时，不触发任何让位
-                  if (sortCrossPagePending && movingBottom < firstItemTop) {
-                      return sortDragOriginalIndex;
-                  }
                   int result = 0;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
@@ -3664,9 +3663,10 @@ jobs:
                       int childIndex = ((Integer) childTag).intValue();
                       float shift = 0f;
                       if (sortCrossPagePending) {
-                          // 跨页模式：浮动条目从外部进入，碰触第一条后取代其位置
-                          // 插缝位置及之后的条目全部下移一格，让拖拽条目霸占第一条
-                          if (childIndex >= Math.max(toIndex, pageStart) && childIndex <= pageEnd) {
+                          // 跨页模式：浮动条目从外部进入
+                          // toIndex == pageStart - 1 表示还未进入目标页，不触发躲闪
+                          // toIndex >= pageStart 时，该位置及之后的条目全部下移一格
+                          if (toIndex >= pageStart && childIndex >= toIndex && childIndex <= pageEnd) {
                               shift = sortDragItemHeight;
                           }
                       } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
@@ -3675,14 +3675,14 @@ jobs:
                       child.animate().translationY(shift).setDuration(170).start();
                   }
                   // 跨页模式下，目标页条目整体下移时，也让 pagerView（三按键）和功能介绍一起下移
-                  if (sortCrossPagePending) {
+                  if (sortCrossPagePending && toIndex >= pageStart) {
                       boolean anyShifted = false;
                       for (int i = headerCount; i < parent.getChildCount(); i++) {
                           View child = parent.getChildAt(i);
                           Object childTag = child.getTag();
                           if (childTag instanceof Integer) {
                               int childIndex = ((Integer) childTag).intValue();
-                              if (childIndex >= Math.max(toIndex, pageStart) && childIndex <= pageEnd) {
+                              if (childIndex >= toIndex && childIndex <= pageEnd) {
                                   anyShifted = true;
                                   break;
                               }
@@ -3715,6 +3715,9 @@ jobs:
                       boolean moved;
                       if (sortCrossPagePending) {
                           moved = commitCrossPageDrop(key, sortCrossPageFromIndex, to, sortResumeDirection);
+                      } else if (sortCrossPageFromIndex >= 0) {
+                          // 拖回原页后，from 是等效位置，实际原始索引在 sortCrossPageFromIndex 中
+                          moved = moveItemSilently(key, sortCrossPageFromIndex, to);
                       } else {
                           moved = moveItemSilently(key, from, to);
                       }
