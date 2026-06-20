@@ -1191,8 +1191,13 @@ jobs:
                   sortList.setClipToPadding(false);
                   sortList.setClipChildren(false);
                   sortPage.addView(sortList);
-                  // 统一在 sortPage 上处理拖拽触摸事件，避免 sortList 和 sortPage 的事件竞争
+                  // sortPage 和 sortList 都注册触摸监听器作为兜底
+                  // 子视图卡片的 OnTouchListener DOWN 返回 false，事件会冒泡到这里
                   sortPage.setOnTouchListener((v, event) -> {
+                      if (!sortSession.isDragging() || sortSession.activeView == null) return false;
+                      return handleSortDragTouch(sortSession.activeView, event);
+                  });
+                  sortList.setOnTouchListener((v, event) -> {
                       if (!sortSession.isDragging() || sortSession.activeView == null) return false;
                       return handleSortDragTouch(sortSession.activeView, event);
                   });
@@ -3556,7 +3561,8 @@ jobs:
                               disallowParentIntercept(v, true);
                               sortSession.dragStartRawY = event.getRawY();
                               sortSession.dragLastRawY = event.getRawY();
-                              return true;
+                              // 必须返回 false，否则 OnLongClickListener 无法接收到长按事件
+                              return false;
                           case MotionEvent.ACTION_MOVE: {
                               return handleSortDragTouch(v, event);
                           }
