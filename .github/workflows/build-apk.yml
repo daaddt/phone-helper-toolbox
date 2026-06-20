@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 71
-                  versionName "1.15.2"
+                  versionCode 74
+                  versionName "1.15.5"
               }
           
               compileOptions {
@@ -2350,6 +2350,7 @@ jobs:
                   if (shouldResumeDrag && resumeView != null) {
                       // 同页恢复：直接恢复拖拽
                       // 如果从其他页拖回原页，需要清除跨页状态，把浮动视图转为列表内视图
+                      int effectiveIndex = sortResumeDragIndex;
                       if (sortCrossPagePending && sortFloatingView != null) {
                           if (sortFloatingView.getParent() != null) {
                               ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
@@ -2365,12 +2366,12 @@ jobs:
                           sortFloatingView = null;
                           sortCrossPagePending = false;
                           sortResumeDirection = 0;
-                          // 拖回原页后，把 sortDragOriginalIndex 设为等效位置（当前页内的索引）
-                          // 这样 applyDodgeAnimation 会按同页逻辑处理，实现一一交换效果
-                          sortCrossPageFromIndex = sortResumeDragIndex; // 保留原始索引用于最终提交
-                          sortResumeDragIndex = start + idx; // 等效位置
+                          // 拖回原页后，使用等效位置（当前页内的索引）计算动画
+                          // 原始索引保留在 sortCrossPageFromIndex 中用于最终提交
+                          sortCrossPageFromIndex = sortResumeDragIndex;
+                          effectiveIndex = start + idx;
                       }
-                      resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
+                      resumeSortDrag(resumeView, effectiveIndex, sortResumeRawY);
                   } else if (shouldResumeDrag && virtualMoving) {
                       // 跨页恢复：创建浮动拖拽视图附加到 sortPage，不占 sortList 槽位
                       try {
@@ -3501,15 +3502,11 @@ jobs:
                   view.setAlpha(0.96f);
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
                   view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
-                  // 跨页模式下不立即计算 pendingIndex 和触发躲闪动画
-                  // 等手指实际移动后再计算，避免浮动视图未布局时位置不准
-                  if (!sortCrossPagePending) {
-                      LinearLayout p = sortList;
-                      if (p != null) {
-                          int target2 = computeSortPendingIndex(p, view);
-                          sortDragPendingIndex = target2;
-                          applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
-                      }
+                  LinearLayout p = sortList;
+                  if (p != null) {
+                      int target2 = computeSortPendingIndex(p, view);
+                      sortDragPendingIndex = target2;
+                      applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
                   }
                   view.post(() -> {
                       if (sortActiveView != view || !sortDragArmed) return;
@@ -3523,12 +3520,22 @@ jobs:
                   int[] loc = new int[2];
                   view.getLocationOnScreen(loc);
                   float baseTop = loc[1] - view.getTranslationY();
-                  // 如果视图未布局（位置为0且不在屏幕顶部），用 sortDragStartRawY 推算
-                  if (baseTop <= 0) {
-                      // 此时无法确定视图默认位置，先不设置 translationY
-                      // 等 post() 回调时视图已完成布局，再正确计算
-                      return;
+                  if (baseTop <= 0 && view.getParent() instanceof LinearLayout) {
+                      LinearLayout parent = (LinearLayout) view.getParent();
+                      int[] parentLoc = new int[2];
+                      parent.getLocationOnScreen(parentLoc);
+                      int childTop = 0;
+                      for (int i = 0; i < parent.getChildCount(); i++) {
+                          View child = parent.getChildAt(i);
+                          if (child == view) break;
+                          int childH = child.getHeight();
+                          if (childH <= 0 && child.getLayoutParams() != null && child.getLayoutParams().height > 0) childH = child.getLayoutParams().height;
+                          childTop += Math.max(0, childH);
+                      }
+                      baseTop = parentLoc[1] + childTop;
                   }
+                  // 如果仍然无法确定位置（布局未完成），先不设置，等 post() 回调
+                  if (baseTop <= 0) return;
                   float desiredTranslation = rawY - (baseTop + h / 2f);
                   sortDragStartRawY = rawY - desiredTranslation;
                   sortDragLastRawY = rawY;
@@ -3611,26 +3618,6 @@ jobs:
                       if (childTag instanceof Integer && parent.getChildAt(i) != moving) itemCount++;
                   }
                   if (itemCount <= 1) return sortDragOriginalIndex;
-
-                  // 跨页模式：浮动视图不在 sortList 中，用相对于 sortList 的 Y 位置计算插缝
-                  if (sortCrossPagePending && moving.getParent() != parent) {
-                      int[] listLoc = new int[2];
-                      parent.getLocationOnScreen(listLoc);
-                      int[] movingLoc = new int[2];
-                      moving.getLocationOnScreen(movingLoc);
-                      float movingCenterY = movingLoc[1] + moving.getTranslationY() + moving.getHeight() / 2f;
-                      float relativeY = movingCenterY - listLoc[1];
-                      // 只有当浮动视图中心进入 sortList 区域（relativeY >= 0）才开始计算插缝
-                      // 否则返回 pageStart - 1，表示还未进入目标页，不触发躲闪
-                      if (relativeY < 0) {
-                          return pageStart - 1;
-                      }
-                      int slot = (int) (relativeY / Math.max(1f, sortDragItemHeight));
-                      // 限制在目标页范围内
-                      return Math.max(pageStart, Math.min(pageStart + itemCount, pageStart + slot));
-                  }
-
-                  // 同页模式：正常的屏幕坐标比较
                   int[] movingLoc = new int[2];
                   moving.getLocationOnScreen(movingLoc);
                   float movingBaseTop = movingLoc[1] - moving.getTranslationY();
@@ -3664,10 +3651,14 @@ jobs:
                       float shift = 0f;
                       if (sortCrossPagePending) {
                           // 跨页模式：浮动条目从外部进入
-                          // toIndex == pageStart - 1 表示还未进入目标页，不触发躲闪
-                          // toIndex >= pageStart 时，该位置及之后的条目全部下移一格
-                          if (toIndex >= pageStart && childIndex >= toIndex && childIndex <= pageEnd) {
+                          // toIndex == pageStart 时（刚接触第一条），整体下移让位
+                          // toIndex > pageStart 时，按同页逻辑一一交换
+                          if (toIndex == pageStart && childIndex >= toIndex && childIndex <= pageEnd) {
                               shift = sortDragItemHeight;
+                          } else if (toIndex > pageStart && childIndex >= toIndex && childIndex <= pageEnd) {
+                              // 同页逻辑：一一交换
+                              if (childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
+                              else if (childIndex >= toIndex && childIndex < fromIndex) shift = sortDragItemHeight;
                           }
                       } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
                       else if (fromIndex > toIndex && childIndex >= toIndex && childIndex < fromIndex) shift = sortDragItemHeight;
@@ -3675,7 +3666,7 @@ jobs:
                       child.animate().translationY(shift).setDuration(170).start();
                   }
                   // 跨页模式下，目标页条目整体下移时，也让 pagerView（三按键）和功能介绍一起下移
-                  if (sortCrossPagePending && toIndex >= pageStart) {
+                  if (sortCrossPagePending && toIndex == pageStart) {
                       boolean anyShifted = false;
                       for (int i = headerCount; i < parent.getChildCount(); i++) {
                           View child = parent.getChildAt(i);
