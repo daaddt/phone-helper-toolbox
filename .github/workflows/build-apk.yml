@@ -3901,16 +3901,11 @@ jobs:
                   View active = sortActiveView;
                   if (active != null) {
                       active.animate().cancel();
+                      active.setTranslationY(0f);
                       active.setAlpha(1f);
                       active.setScaleX(1f);
                       active.setScaleY(1f);
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) active.setElevation(6f);
-                      // 将拖拽视图从当前父容器移除，保存为浮动视图供跨页使用
-                      // 避免拖回原页时视图在原位置闪烁
-                      if (active.getParent() != null) {
-                          ((android.view.ViewGroup) active.getParent()).removeView(active);
-                      }
-                      sortFloatingView = active;
                   }
                   sortAutoPageDirection = 0;
                   sortAutoPageSince = 0L;
