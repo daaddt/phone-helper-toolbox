@@ -2355,7 +2355,11 @@ jobs:
                           JSONObject obj = array.getJSONObject(i);
                           View child = "text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj);
                           sortList.addView(child);
-                          if (shouldResumeDrag && i == sortResumeDragIndex) resumeView = child;
+                          if (shouldResumeDrag && i == sortResumeDragIndex) {
+                              resumeView = child;
+                              // 方案A：初始隐藏resumeView，避免在resumeSortDrag调整位置前显示在原位置造成闪烁
+                              child.setAlpha(0f);
+                          }
                       } catch (Exception ignored) {}
                   }
                   sortList.addView(pagerView("\u6392\u5e8f", sortPageIndex, pageCount(array.length()), () -> changeSortPage(-1), () -> changeSortPage(1)));
@@ -3513,9 +3517,8 @@ jobs:
                   } else {
                       alignSortDragToFinger(view, rawY);
                   }
-                  if (layoutReady) {
-                      view.setAlpha(0.96f);
-                  }
+                  // 方案A：无论之前是否隐藏，调整好位置后显示视图
+                  view.setAlpha(0.96f);
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
                   view.animate().scaleX(1.04f).scaleY(1.04f).setDuration(120).start();
                   LinearLayout p = sortList;
@@ -3788,7 +3791,8 @@ jobs:
                   }
 
                   // 跨页到新页时，toIndex >= pageStart 整体下移，pagerView 和功能说明也跟着下移
-                  if (sortCrossPagePending && isFloating && toIndex >= pageStart) {
+                  // 当条目回缩时（toIndex 减小），三按键和功能说明也跟着回缩
+                  if (sortCrossPagePending && isFloating) {
                       boolean anyShifted = false;
                       for (int i = headerCount; i < parent.getChildCount(); i++) {
                           View child = parent.getChildAt(i);
@@ -3806,9 +3810,15 @@ jobs:
                               View child = parent.getChildAt(i);
                               Object childTag = child.getTag();
                               if (childTag instanceof Integer) continue;
-                              // pagerView 和功能介绍等非条目视图也跟着下移
+                              // pagerView 和功能介绍等非条目视图跟随条目一起下移/回缩
                               child.animate().cancel();
-                              child.animate().translationY(sortDragItemHeight).setDuration(170).start();
+                              if (toIndex >= pageStart) {
+                                  // 整体下移
+                                  child.animate().translationY(sortDragItemHeight).setDuration(170).start();
+                              } else {
+                                  // 回缩到原位
+                                  child.animate().translationY(0f).setDuration(170).start();
+                              }
                           }
                       }
                   }
