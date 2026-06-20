@@ -3506,7 +3506,13 @@ jobs:
                   if (!layoutReady) {
                       view.setAlpha(0f);
                   }
-                  alignSortDragToFinger(view, rawY);
+                  // 跨页浮动模式下使用 realignFloatingViewToFinger 保持位置不漂移
+                  boolean isFloating = view.getParent() != sortList;
+                  if (sortCrossPagePending && isFloating) {
+                      realignFloatingViewToFinger(view, rawY);
+                  } else {
+                      alignSortDragToFinger(view, rawY);
+                  }
                   if (layoutReady) {
                       view.setAlpha(0.96f);
                   }
@@ -3520,7 +3526,11 @@ jobs:
                   }
                   view.post(() -> {
                       if (sortActiveView != view || !sortDragArmed) return;
-                      alignSortDragToFinger(view, rawY);
+                      if (sortCrossPagePending && isFloating) {
+                          realignFloatingViewToFinger(view, rawY);
+                      } else {
+                          alignSortDragToFinger(view, rawY);
+                      }
                       view.setAlpha(0.96f);
                   });
               }
@@ -3552,6 +3562,20 @@ jobs:
                   sortDragLastRawY = rawY;
                   view.setTranslationY(desiredTranslation);
               }
+
+              // 跨页后重新对齐浮动视图到手指位置，保持相对偏移
+              private void realignFloatingViewToFinger(View view, float rawY) {
+                  if (view == null) return;
+                  int h = view.getHeight() > 0 ? view.getHeight() : dpToPx(58);
+                  int[] loc = new int[2];
+                  view.getLocationOnScreen(loc);
+                  float currentCenterY = loc[1] + h / 2f;
+                  float offset = rawY - currentCenterY;
+                  float newTranslation = view.getTranslationY() + offset;
+                  sortDragStartRawY = rawY - newTranslation;
+                  sortDragLastRawY = rawY;
+                  view.setTranslationY(newTranslation);
+              }
           
               private boolean handleSortDragTouch(View moving, MotionEvent event) {
                   if (!sortDragArmed || moving == null) return false;
@@ -3566,6 +3590,19 @@ jobs:
                           float rawY = event.getRawY();
                           updateSortAutoPage(event.getRawX(), rawY);
                           updateSortAutoScroll(rawY);
+                          // 跨页浮动模式下，使用 realignFloatingViewToFinger 保持跟随手指不漂移
+                          boolean isFloating = moving.getParent() != parent;
+                          if (sortCrossPagePending && isFloating) {
+                              realignFloatingViewToFinger(moving, rawY);
+                              sortDragLastRawY = rawY;
+                              int target2 = computeSortPendingIndex(parent, moving);
+                              if (target2 != sortDragPendingIndex) {
+                                  sortDragPendingIndex = target2;
+                                  applyDodgeAnimation(parent, moving, sortDragOriginalIndex, target2);
+                                  moving.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+                              }
+                              return true;
+                          }
                           float dy = rawY - sortDragStartRawY;
                           if (!sortDragMoved && Math.abs(dy) < dpToPx(18)) {
                               moving.setTranslationY(0f);
@@ -3630,11 +3667,21 @@ jobs:
                   }
                   if (itemCount <= 1) return sortDragOriginalIndex;
 
-                  // 跨页到新页：只有当拖拽条目底部碰到目标页第一条目上边缘时，才触发整体下移
-                  // 拖回原页：跳过整体下移，直接一一交换（原页第一条位置已自然空缺）
                   boolean isFloating = moving.getParent() != parent;
+                  int[] movingLoc = new int[2];
+                  moving.getLocationOnScreen(movingLoc);
+                  float movingBaseTop = movingLoc[1] - moving.getTranslationY();
+                  float movingCenterY = movingBaseTop + moving.getTranslationY() + moving.getHeight() / 2f;
+                  float movingBottom = movingBaseTop + moving.getTranslationY() + moving.getHeight();
+
+                  // 跨页到新页：分阶段触发
+                  // 阶段1：底部碰到目标页第一条目上边缘 -> 目标页所有条目+三按键+功能说明整体下移
+                  // 阶段2：继续向下，底部碰到原第一条目的下边缘 -> 原第一条目上移一格，视觉上位置互换
+                  // 阶段3：以此类推，每碰到下一个条目的下边缘，对应条目上移
                   if (sortCrossPagePending && isFloating) {
+                      // 找到目标页各条目的位置信息
                       float firstItemTop = Float.MAX_VALUE;
+                      float firstItemBottom = Float.MAX_VALUE;
                       for (int i = headerCount; i < parent.getChildCount(); i++) {
                           View child = parent.getChildAt(i);
                           if (child == moving) continue;
@@ -3645,22 +3692,36 @@ jobs:
                           int[] loc = new int[2];
                           child.getLocationOnScreen(loc);
                           float top = loc[1] - child.getTranslationY();
-                          if (top < firstItemTop) firstItemTop = top;
+                          float bottom = top + child.getHeight();
+                          if (top < firstItemTop) {
+                              firstItemTop = top;
+                              firstItemBottom = bottom;
+                          }
                       }
-                      int[] movingLoc = new int[2];
-                      moving.getLocationOnScreen(movingLoc);
-                      float movingBottom = movingLoc[1] + moving.getTranslationY() + moving.getHeight();
                       // 底部未碰到第一条上边缘：不触发任何让位
                       if (movingBottom < firstItemTop) {
                           return pageStart - 1;
                       }
+                      // 已接触第一条上边缘，计算应该插入到哪个位置
+                      // 用底部超过各条目下边缘来判断，实现逐条上移效果
+                      int result = 0;
+                      for (int i = headerCount; i < parent.getChildCount(); i++) {
+                          View child = parent.getChildAt(i);
+                          if (child == moving) continue;
+                          Object childTag = child.getTag();
+                          if (!(childTag instanceof Integer)) continue;
+                          int[] loc = new int[2];
+                          child.getLocationOnScreen(loc);
+                          float baseTop = loc[1] - child.getTranslationY();
+                          float bottom = baseTop + child.getHeight();
+                          // 拖拽条目底部超过当前条目下边缘时，result增加
+                          if (movingBottom > bottom) result++;
+                      }
+                      int maxTarget = pageStart + itemCount;
+                      return Math.max(pageStart, Math.min(maxTarget, pageStart + result));
                   }
 
-                  int[] movingLoc = new int[2];
-                  moving.getLocationOnScreen(movingLoc);
-                  float movingBaseTop = movingLoc[1] - moving.getTranslationY();
-                  float movingCenterY = movingBaseTop + moving.getTranslationY() + moving.getHeight() / 2f;
-                  float movingBottom = movingBaseTop + moving.getTranslationY() + moving.getHeight();
+                  // 非跨页模式：使用中心点判断
                   int result = 0;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
@@ -3671,9 +3732,7 @@ jobs:
                       child.getLocationOnScreen(loc);
                       float baseTop = loc[1] - child.getTranslationY();
                       float centerY = baseTop + child.getHeight() / 2f;
-                      // 跨页模式：用底部超过中心来判断，更敏感，能在条目上半部分就触发换位
-                      if (isFloating && movingBottom > centerY) result++;
-                      else if (!isFloating && movingCenterY > centerY) result++;
+                      if (movingCenterY > centerY) result++;
                   }
                   int maxTarget = pageStart + itemCount;
                   return Math.max(pageStart, Math.min(maxTarget, pageStart + result));
@@ -3683,6 +3742,15 @@ jobs:
                   int headerCount = isSortMode(sortModeKey, sortModeType) && parent == sortList ? 0 : 1;
                   int pageStart = isSortMode(sortModeKey, sortModeType) && parent == sortList ? sortPageIndex * PAGE_SIZE : 0;
                   int pageEnd = pageStart + PAGE_SIZE - 1;
+                  boolean isFloating = moving.getParent() != parent;
+
+                  // 跨页到新页：计算需要整体上移的条目数量
+                  // 当 toIndex > pageStart 时，表示拖拽条目已经越过了 (toIndex - pageStart) 个条目
+                  int crossPageShiftCount = 0;
+                  if (sortCrossPagePending && isFloating && toIndex >= pageStart) {
+                      crossPageShiftCount = toIndex - pageStart;
+                  }
+
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
                       if (child == moving) continue;
@@ -3690,18 +3758,22 @@ jobs:
                       if (!(childTag instanceof Integer)) continue;
                       int childIndex = ((Integer) childTag).intValue();
                       float shift = 0f;
-                      boolean isFloating = moving.getParent() != parent;
+
                       if (sortCrossPagePending && isFloating) {
                           // 跨页到新页：浮动条目是外来者
                           // toIndex < pageStart 时（未接触第一条上边缘），不触发躲闪
-                          // toIndex == pageStart 时（刚接触第一条上边缘），全部下移
-                          // toIndex > pageStart 时（过了第一条），只有 toIndex-1 位置的条目下移（一一交换）
+                          // toIndex >= pageStart 时（已接触第一条上边缘），目标页所有条目整体下移
+                          // 同时，被拖拽条目越过的条目逐个上移，实现视觉上位置互换
                           if (toIndex < pageStart) {
                               shift = 0f;
-                          } else if (toIndex == pageStart && childIndex >= pageStart && childIndex <= pageEnd) {
+                          } else if (toIndex >= pageStart && childIndex >= pageStart && childIndex <= pageEnd) {
+                              // 所有目标页条目先整体下移
                               shift = sortDragItemHeight;
-                          } else if (toIndex > pageStart && childIndex == toIndex - 1) {
-                              shift = sortDragItemHeight;
+                              // 被拖拽条目越过的条目（从 pageStart 到 toIndex-1）再逐个上移
+                              // 这样视觉上就是：被越过的条目回到原位，后面的条目保持下移
+                              if (childIndex >= pageStart && childIndex < toIndex) {
+                                  shift = 0f; // 下移后再上移，等于原位
+                              }
                           }
                       } else if (isFloating && !sortCrossPagePending) {
                           // 拖回原页：浮动视图仍在，原页第一条位置空缺
@@ -3714,15 +3786,16 @@ jobs:
                       child.animate().cancel();
                       child.animate().translationY(shift).setDuration(170).start();
                   }
-                  // 跨页到新页时，toIndex == pageStart 整体下移，pagerView 也跟着下移
-                  if (sortCrossPagePending && toIndex == pageStart) {
+
+                  // 跨页到新页时，toIndex >= pageStart 整体下移，pagerView 和功能说明也跟着下移
+                  if (sortCrossPagePending && isFloating && toIndex >= pageStart) {
                       boolean anyShifted = false;
                       for (int i = headerCount; i < parent.getChildCount(); i++) {
                           View child = parent.getChildAt(i);
                           Object childTag = child.getTag();
                           if (childTag instanceof Integer) {
                               int childIndex = ((Integer) childTag).intValue();
-                              if (childIndex >= toIndex && childIndex <= pageEnd) {
+                              if (childIndex >= pageStart && childIndex <= pageEnd) {
                                   anyShifted = true;
                                   break;
                               }
@@ -3848,16 +3921,23 @@ jobs:
           
               private void runSortAutoScrollTick() {
                   if (sortAutoScrollDirection == 0 || !sortDragArmed || rootScroll == null || sortActiveView == null || !"sort".equals(currentPage)) return;
-                  LinearLayout parent = sortActiveView.getParent() instanceof LinearLayout ? (LinearLayout) sortActiveView.getParent() : null;
+                  LinearLayout parent = sortList;
                   if (parent == null) { stopSortAutoScroll(); return; }
                   int before = rootScroll.getScrollY();
                   int step = sortAutoScrollDirection * dpToPx(18);
                   rootScroll.scrollBy(0, step);
                   int actual = rootScroll.getScrollY() - before;
                   if (actual != 0) {
-                      sortDragStartRawY -= actual;
-                      float dy = sortDragLastRawY - sortDragStartRawY;
-                      sortActiveView.setTranslationY(dy);
+                      // 跨页浮动模式下，保持浮动视图跟随手指位置
+                      boolean isFloating = sortActiveView.getParent() != parent;
+                      if (sortCrossPagePending && isFloating) {
+                          // 滚动时保持 translationY 不变，这样相对于屏幕位置不变
+                          // 不需要调整 sortDragStartRawY，因为 realignFloatingViewToFinger 会直接对齐到手指
+                      } else {
+                          sortDragStartRawY -= actual;
+                          float dy = sortDragLastRawY - sortDragStartRawY;
+                          sortActiveView.setTranslationY(dy);
+                      }
                       int target2 = computeSortPendingIndex(parent, sortActiveView);
                       if (target2 != sortDragPendingIndex) {
                           sortDragPendingIndex = target2;
