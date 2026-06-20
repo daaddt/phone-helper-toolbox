@@ -106,8 +106,8 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 69
-                  versionName "1.15.0"
+                  versionCode 70
+                  versionName "1.15.1"
               }
           
               compileOptions {
@@ -2349,6 +2349,23 @@ jobs:
                   sortList.addView(pagerView("\u6392\u5e8f", sortPageIndex, pageCount(array.length()), () -> changeSortPage(-1), () -> changeSortPage(1)));
                   if (shouldResumeDrag && resumeView != null) {
                       // 同页恢复：直接恢复拖拽
+                      // 如果从其他页拖回原页，需要清除跨页状态，把浮动视图转为列表内视图
+                      if (sortCrossPagePending && sortFloatingView != null) {
+                          if (sortFloatingView.getParent() != null) {
+                              ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
+                          }
+                          // 把浮动视图插入到 sortList 中 resumeView 的位置（resumeView 就是对应索引的条目）
+                          int idx = sortList.indexOfChild(resumeView);
+                          if (idx >= 0) {
+                              sortList.removeViewAt(idx);
+                              sortList.addView(sortFloatingView, idx);
+                              sortFloatingView.setTag(Integer.valueOf(sortResumeDragIndex));
+                              resumeView = sortFloatingView;
+                          }
+                          sortFloatingView = null;
+                          sortCrossPagePending = false;
+                          sortResumeDirection = 0;
+                      }
                       resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
                   } else if (shouldResumeDrag && virtualMoving) {
                       // 跨页恢复：创建浮动拖拽视图附加到 sortPage，不占 sortList 槽位
