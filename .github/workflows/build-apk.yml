@@ -806,6 +806,7 @@ jobs:
           
               private JSONArray aiMessages = new JSONArray();
               private boolean aiSending = false;
+              private volatile boolean aiCancelled = false;
               private String aiTypingTargetText = "";
               private String aiTypingDisplayText = "";
               private int aiTypingMessageIndex = -1;
@@ -849,6 +850,8 @@ jobs:
               private int sortAutoPageDirection = 0;
               private long sortAutoPageSince = 0L;
               private long lastBackPressedAt = 0;
+              // 缓存 AI 气泡视图，避免打字过程中全量重建
+              private final java.util.HashMap<Integer, View> aiBubbleViews = new java.util.HashMap<>();
           
               private final Runnable tick = new Runnable() {
                   @Override
@@ -970,6 +973,8 @@ jobs:
                   // 切到后台时停止排序自动滚动和 AI 打字机，避免内存泄漏和无效回调
                   stopSortAutoScroll();
                   stopAiTypewriter();
+                  // 取消正在进行的 AI 网络请求
+                  aiCancelled = true;
               }
           
               @Override
@@ -989,6 +994,7 @@ jobs:
                   handler.removeCallbacks(tick);
                   stopAiTypewriter();
                   stopSortAutoScroll();
+                  aiCancelled = true;
               }
           
               private void buildUi() {
@@ -2743,6 +2749,7 @@ jobs:
           
               private void callAi(boolean testMode) {
                   stopAiTypewriter();
+                  aiCancelled = false;
                   aiSending = true; updateAiSendingUi();
                   showStatus(testMode ? "\u6b63\u5728\u6d4b\u8bd5 AI \u8fde\u63a5..." : "AI \u6b63\u5728\u601d\u8003...");
                   final String requestBody;
@@ -2759,16 +2766,20 @@ jobs:
                               if (streamingIdx >= 0 && !delta.trim().isEmpty()) pushAiTypingTarget(delta);
                           }));
                           runOnUiThread(() -> {
+                              if (aiCancelled) { aiSending = false; updateAiSendingUi(); return; }
                               boolean hasReply = reply != null && !reply.trim().isEmpty();
                               boolean safetyLike = hasReply && looksLikeSafetyReply(reply);
                               String finalText = hasReply ? withSafetyDiagnosisIfNeeded(reply) : buildAiEmptyReplyDiagnosis("模型返回了空内容。");
                               finishAiTypewriter(finalText, () -> {
                                   showStatus(!hasReply ? "AI 没有返回有效内容，已给出诊断建议" : (safetyLike ? "AI 回复可能触发安全策略，已附加诊断提示" : "AI 回复完成"));
-                                  aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi(); saveAiMessages(); renderAiMessages();
+                                  aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi();
+                                  saveAiMessages();
+                                  renderAiMessages();
                               });
                           });
                       } catch (Exception e) {
                           runOnUiThread(() -> {
+                              if (aiCancelled) { aiSending = false; updateAiSendingUi(); return; }
                               stopAiTypewriter();
                               String fail = diagnoseAiException(e);
                               if (streamingIdx >= 0) updateAiMessage(streamingIdx, "assistant", fail);
@@ -2809,6 +2820,7 @@ jobs:
                   aiTypingTargetText = aiTypingFinalText;
                   aiTypingFinished = true;
                   aiTypingDoneAction = done;
+                  // 修复边界：如果打字机已被停止（aiTypingMessageIndex == -1），不再重新激活
                   if (!aiTypingActive && aiTypingMessageIndex >= 0) {
                       aiTypingActive = true;
                       handler.post(aiTypingTicker);
@@ -2824,6 +2836,8 @@ jobs:
                   aiTypingFinalText = "";
                   aiTypingMessageIndex = -1;
                   aiTypingDoneAction = null;
+                  // 清理打字过程中可能残留的缓存视图，避免下次渲染时重用旧视图
+                  aiBubbleViews.clear();
               }
           
               private void runAiTypingTick() {
@@ -2906,6 +2920,7 @@ jobs:
                       BufferedReader br = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
                       String line;
                       while ((line = br.readLine()) != null) {
+                          if (aiCancelled) break;
                           line = line.trim();
                           if (line.isEmpty()) continue;
                           if (!line.startsWith("data:")) continue;
@@ -3010,12 +3025,29 @@ jobs:
               private void updateAiMessage(int index, String role, String content) {
                   try {
                       if (index < 0 || index >= aiMessages.length()) return;
-                      JSONObject obj = new JSONObject(); obj.put("role", role); obj.put("content", content); aiMessages.put(index, obj);
+                      // 打字过程中直接修改已有 JSONObject 的内容字段，避免创建新对象
+                      JSONObject obj = aiMessages.getJSONObject(index);
+                      obj.put("content", content);
                       boolean typing = aiTypingActive && index == aiTypingMessageIndex && "assistant".equals(role);
                       long now = SystemClock.elapsedRealtime();
-                      if (!typing || now - aiLastSavedAt > 900 || aiTypingFinished) {
+                      // 打字过程中大幅减少 SharedPreferences 写入频率，完成后再一次性保存
+                      if (!typing || now - aiLastSavedAt > 1800 || aiTypingFinished) {
                           saveAiMessages();
                           aiLastSavedAt = now;
+                      }
+                      // 打字时直接更新缓存视图的文本，不触发全量重建
+                      if (typing) {
+                          View cached = aiBubbleViews.get(index);
+                          if (cached != null) {
+                              TextView tv = cached.findViewWithTag("aiBubbleText_" + index);
+                              if (tv != null) {
+                                  tv.setText(content);
+                                  if ("ai".equals(currentPage) && aiMessageScroll != null) {
+                                      aiMessageScroll.post(() -> { aiMessageScroll.smoothScrollTo(0, aiMessageList.getBottom()); reapplyAiKeyboardOffset(); });
+                                  }
+                                  return;
+                              }
+                          }
                       }
                       scheduleAiRender(typing);
                   } catch (Exception ignored) {}
@@ -3036,12 +3068,39 @@ jobs:
           
               private void renderAiMessages() {
                   if (aiMessageList == null) return;
+                  // 如果消息数量没变且已有缓存视图，只更新文本内容，避免 removeAllViews 全量重建
+                  boolean canReuse = aiMessages.length() == aiBubbleViews.size();
+                  if (canReuse) {
+                      boolean allMatch = true;
+                      for (int i = 0; i < aiMessages.length(); i++) {
+                          if (!aiBubbleViews.containsKey(i)) { allMatch = false; break; }
+                      }
+                      if (allMatch) {
+                          for (int i = 0; i < aiMessages.length(); i++) {
+                              try {
+                                  JSONObject msg = aiMessages.getJSONObject(i);
+                                  View cached = aiBubbleViews.get(i);
+                                  if (cached != null) {
+                                      TextView tv = cached.findViewWithTag("aiBubbleText_" + i);
+                                      if (tv != null) tv.setText(msg.optString("content", ""));
+                                  }
+                              } catch (Exception ignored) {}
+                          }
+                          if ("ai".equals(currentPage) && aiMessageScroll != null) {
+                              aiMessageScroll.post(() -> { aiMessageScroll.smoothScrollTo(0, aiMessageList.getBottom()); reapplyAiKeyboardOffset(); });
+                          }
+                          return;
+                      }
+                  }
                   aiMessageList.removeAllViews();
+                  aiBubbleViews.clear();
                   for (int i = 0; i < aiMessages.length(); i++) {
                       try {
                           JSONObject msg = aiMessages.getJSONObject(i);
                           boolean streaming = aiSending && i == streamingAssistantIndex && "assistant".equals(msg.optString("role"));
-                          aiMessageList.addView(aiBubble(i, msg.optString("role"), msg.optString("content"), streaming));
+                          View bubble = aiBubble(i, msg.optString("role"), msg.optString("content"), streaming);
+                          aiBubbleViews.put(i, bubble);
+                          aiMessageList.addView(bubble);
                       } catch (Exception ignored) {}
                   }
                   if ("ai".equals(currentPage) && aiMessageScroll != null) {
@@ -3067,6 +3126,8 @@ jobs:
                   wrap.setOrientation(LinearLayout.VERTICAL);
                   wrap.setGravity(user ? Gravity.RIGHT : Gravity.LEFT);
                   TextView tv = text((user ? "你\n" : "AI\n") + content, 15, Color.WHITE);
+                  // 设置 tag 以便缓存查找时快速定位 TextView
+                  tv.setTag("aiBubbleText_" + index);
                   GradientDrawable bg = new GradientDrawable();
                   bg.setColor(user ? Color.rgb(14, 116, 144) : Color.rgb(24, 35, 52));
                   bg.setStroke(1, user ? Color.rgb(34, 211, 238) : Color.rgb(51, 65, 85));
