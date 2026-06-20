@@ -2407,6 +2407,9 @@ jobs:
                       sortDragArmed = false;
                       sortDragMoved = false;
                       sortActiveView = null;
+                      sortCrossPagePending = false;
+                      sortCrossPageFromIndex = -1;
+                      sortResumeDirection = 0;
                   }
                   sortResumeDragIndex = -1;
                   sortResumeRawY = 0f;
@@ -3719,8 +3722,15 @@ jobs:
                           if (wasArmed && from >= 0 && to >= 0 && (from != to || sortCrossPagePending) && Math.abs(moving.getTranslationY()) >= dpToPx(18)) {
                               commitSortDrop(parent, moving, sortModeKey, sortModeType, from, to);
                           } else {
-                              moving.animate().translationY(0f).setDuration(140).start();
-                              resetDodgeAnimation(parent);
+                              if (sortCrossPageFromIndex >= 0) {
+                                  sortCrossPagePending = false;
+                                  sortCrossPageFromIndex = -1;
+                                  sortResumeDirection = 0;
+                                  renderSortPage();
+                              } else {
+                                  moving.animate().translationY(0f).setDuration(140).start();
+                                  resetDodgeAnimation(parent);
+                              }
                           }
                           return true;
                       }
