@@ -1001,13 +1001,7 @@ jobs:
                   rootFrame = new FrameLayout(this);
                   rootFrame.setBackgroundColor(Color.rgb(10, 15, 25));
           
-                  rootScroll = new ScrollView(this) {
-                      @Override
-                      protected void dispatchDraw(android.graphics.Canvas canvas) {
-                          try { super.dispatchDraw(canvas); }
-                          catch (NullPointerException e) { android.util.Log.w("ViewGroupGuard", "dispatchDraw: child list corrupted, skipping frame", e); }
-                      }
-                  };
+                  rootScroll = new ScrollView(this);
                   rootScroll.setFillViewport(false);
                   rootScroll.setClipToPadding(false);
                   rootScroll.setClipChildren(false);
@@ -2386,7 +2380,7 @@ jobs:
                           // 拖回原页：恢复浮动视图到 sortPage，不渲染到列表中
                           // 浮动视图已被方案A隐藏（alpha=0），resumeSortDrag会恢复显示
                           sortFloatingView = oldFloatingView;
-                          try { sortPage.addView(oldFloatingView); } catch (Exception ignored) {}
+                          sortPage.addView(oldFloatingView);
                           sortCrossPagePending = false;
                           sortResumeDirection = 0;
                           sortCrossPageFromIndex = sortResumeDragIndex;
@@ -3910,23 +3904,21 @@ jobs:
               private void commitSortDrop(LinearLayout parent, final View moving, final String key, final String type, final int from, final int to) {
                   resetDodgeAnimation(parent);
                   moving.animate().translationY(0f).setDuration(160).withEndAction(() -> {
-                      // post 到下一帧，避免动画结束回调与 dispatchDraw 竞争
-                      handler.post(() -> {
-                          boolean moved;
-                          if (sortCrossPagePending) {
-                              moved = commitCrossPageDrop(key, sortCrossPageFromIndex, to, sortResumeDirection);
-                          } else if (sortCrossPageFromIndex >= 0) {
-                              moved = moveItemSilently(key, sortCrossPageFromIndex, to);
-                          } else {
-                              moved = moveItemSilently(key, from, to);
-                          }
-                          sortCrossPagePending = false;
-                          sortCrossPageFromIndex = -1;
-                          sortResumeDirection = 0;
-                          if (moved) {
-                              renderSortPage();
-                          }
-                      });
+                      boolean moved;
+                      if (sortCrossPagePending) {
+                          moved = commitCrossPageDrop(key, sortCrossPageFromIndex, to, sortResumeDirection);
+                      } else if (sortCrossPageFromIndex >= 0) {
+                          // 拖回原页后，from 是等效位置，实际原始索引在 sortCrossPageFromIndex 中
+                          moved = moveItemSilently(key, sortCrossPageFromIndex, to);
+                      } else {
+                          moved = moveItemSilently(key, from, to);
+                      }
+                      sortCrossPagePending = false;
+                      sortCrossPageFromIndex = -1;
+                      sortResumeDirection = 0;
+                      if (moved) {
+                          renderSortPage();
+                      }
                   }).start();
               }
           
@@ -4002,19 +3994,15 @@ jobs:
                   sortResumeDragIndex = from;
                   sortResumeRawY = rawY;
                   sortResumeDirection = direction;
-                  // post 到下一帧，确保 scrollBy 触发的 dispatchDraw 已完成后再修改 View 树
-                  handler.post(() -> {
-                      renderSortPage();
-                      showStatus("\u5df2\u81ea\u52a8\u6362\u9875\uff0c\u677e\u624b\u540e\u518d\u4fdd\u5b58\u4f4d\u7f6e");
-                  });
+                  renderSortPage();
+                  showStatus("\u5df2\u81ea\u52a8\u6362\u9875\uff0c\u677e\u624b\u540e\u518d\u4fdd\u5b58\u4f4d\u7f6e");
               }
           
               private void runSortAutoScrollTick() {
                   if (sortAutoScrollDirection == 0 || !sortDragArmed || rootScroll == null || sortActiveView == null || !"sort".equals(currentPage)) return;
                   LinearLayout parent = sortList;
                   if (parent == null) { stopSortAutoScroll(); return; }
-                  try {
-                      int before = rootScroll.getScrollY();
+                  int before = rootScroll.getScrollY();
                       int step = sortAutoScrollDirection * dpToPx(18);
                       rootScroll.scrollBy(0, step);
                       int actual = rootScroll.getScrollY() - before;
@@ -4035,7 +4023,7 @@ jobs:
                               applyDodgeAnimation(parent, sortActiveView, sortDragOriginalIndex, target2);
                           }
                       }
-                  } catch (Exception ignored) {}
+                  }
                   handler.postDelayed(sortAutoScrollTick, 28);
               }
           
