@@ -3663,6 +3663,7 @@ jobs:
                           setSortControlsEnabled(false);
                           float rawY = event.getRawY();
                           updateSortAutoPage(event.getRawX(), rawY);
+                          if (sortActiveView != moving) return true;
                           updateSortAutoScroll(rawY);
                           // 跨页浮动模式下，使用 realignFloatingViewToFinger 保持跟随手指不漂移
                           boolean isFloating = moving.getParent() != parent;
@@ -3834,6 +3835,7 @@ jobs:
 
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
+                      if (child == null) continue;
                       if (child == moving) continue;
                       Object childTag = child.getTag();
                       if (!(childTag instanceof Integer)) continue;
@@ -3887,6 +3889,7 @@ jobs:
                       if (anyShifted) {
                           for (int i = headerCount; i < parent.getChildCount(); i++) {
                               View child = parent.getChildAt(i);
+                              if (child == null) continue;
                               Object childTag = child.getTag();
                               if (childTag instanceof Integer) continue;
                               // pagerView 和功能介绍等非条目视图跟随条目一起下移/回缩
@@ -3904,8 +3907,10 @@ jobs:
               }
           
               private void resetDodgeAnimation(LinearLayout parent) {
+                  if (parent == null) return;
                   for (int i = 0; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
+                      if (child == null) continue;
                       child.animate().cancel();
                       child.animate().translationY(0f).setDuration(150).start();
                   }
