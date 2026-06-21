@@ -4003,25 +4003,24 @@ jobs:
                   LinearLayout parent = sortList;
                   if (parent == null) { stopSortAutoScroll(); return; }
                   int before = rootScroll.getScrollY();
-                      int step = sortAutoScrollDirection * dpToPx(18);
-                      rootScroll.scrollBy(0, step);
-                      int actual = rootScroll.getScrollY() - before;
-                      if (actual != 0) {
-                          // 跨页浮动模式下，保持浮动视图跟随手指位置
-                          boolean isFloating = sortActiveView.getParent() != parent;
-                          if (sortCrossPagePending && isFloating) {
-                              // 滚动时保持 translationY 不变，这样相对于屏幕位置不变
-                              // 不需要调整 sortDragStartRawY，因为 realignFloatingViewToFinger 会直接对齐到手指
-                          } else {
-                              sortDragStartRawY -= actual;
-                              float dy = sortDragLastRawY - sortDragStartRawY;
-                              sortActiveView.setTranslationY(dy);
-                          }
-                          int target2 = computeSortPendingIndex(parent, sortActiveView);
-                          if (target2 != sortDragPendingIndex) {
-                              sortDragPendingIndex = target2;
-                              applyDodgeAnimation(parent, sortActiveView, sortDragOriginalIndex, target2);
-                          }
+                  int step = sortAutoScrollDirection * dpToPx(18);
+                  rootScroll.scrollBy(0, step);
+                  int actual = rootScroll.getScrollY() - before;
+                  if (actual != 0) {
+                      // 跨页浮动模式下，保持浮动视图跟随手指位置
+                      boolean isFloating = sortActiveView.getParent() != parent;
+                      if (sortCrossPagePending && isFloating) {
+                          // 滚动时保持 translationY 不变，这样相对于屏幕位置不变
+                          // 不需要调整 sortDragStartRawY，因为 realignFloatingViewToFinger 会直接对齐到手指
+                      } else {
+                          sortDragStartRawY -= actual;
+                          float dy = sortDragLastRawY - sortDragStartRawY;
+                          sortActiveView.setTranslationY(dy);
+                      }
+                      int target2 = computeSortPendingIndex(parent, sortActiveView);
+                      if (target2 != sortDragPendingIndex) {
+                          sortDragPendingIndex = target2;
+                          applyDodgeAnimation(parent, sortActiveView, sortDragOriginalIndex, target2);
                       }
                   }
                   handler.postDelayed(sortAutoScrollTick, 28);
