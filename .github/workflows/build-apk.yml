@@ -2337,23 +2337,12 @@ jobs:
                   // 方案A：拖拽恢复时先隐藏浮动视图，避免移除后重新添加时在原位置闪烁
                   View oldFloatingView = sortFloatingView;
                   if (shouldResumeDrag && sortFloatingView != null) {
-                      try { sortFloatingView.setAlpha(0f); } catch (Exception ignored) {}
+                      sortFloatingView.setAlpha(0f);
                   }
-                  if (sortFloatingView != null && sortFloatingView.getParent() instanceof android.view.ViewGroup) {
-                      try { ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView); } catch (Exception ignored) {}
+                  if (sortFloatingView != null && sortFloatingView.getParent() != null) {
+                      ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
                   }
                   sortFloatingView = null;
-                  // 防御性清理 sortPage 中可能残留的浮动视图（索引>=3 的非固定子视图）
-                  if (sortPage != null) {
-                      for (int i = sortPage.getChildCount() - 1; i >= 3; i--) {
-                          try {
-                              View c = sortPage.getChildAt(i);
-                              if (c != null && c != sortList) {
-                                  sortPage.removeView(c);
-                              }
-                          } catch (Exception ignored) {}
-                      }
-                  }
                   clearSortVisuals(sortList);
                   sortList.removeAllViews();
                   applySortLayoutTransition(sortList, false);
@@ -2382,11 +2371,9 @@ jobs:
                           }
                           JSONObject obj = array.getJSONObject(i);
                           View child = "text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj);
-                          if (child != null) {
-                              sortList.addView(child);
-                              if (shouldResumeDrag && i == sortResumeDragIndex) {
-                                  resumeView = child;
-                              }
+                          sortList.addView(child);
+                          if (shouldResumeDrag && i == sortResumeDragIndex) {
+                              resumeView = child;
                           }
                       } catch (Exception ignored) {}
                   }
@@ -2426,9 +2413,6 @@ jobs:
                       sortDragArmed = false;
                       sortDragMoved = false;
                       sortActiveView = null;
-                      sortCrossPagePending = false;
-                      sortCrossPageFromIndex = -1;
-                      sortResumeDirection = 0;
                   }
                   sortResumeDragIndex = -1;
                   sortResumeRawY = 0f;
@@ -3618,15 +3602,13 @@ jobs:
                       applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
                   }
                   view.post(() -> {
-                      try {
-                          if (sortActiveView != view || !sortDragArmed) return;
-                          if (sortCrossPagePending && isFloating) {
-                              realignFloatingViewToFinger(view, rawY);
-                          } else {
-                              alignSortDragToFinger(view, rawY);
-                          }
-                          view.setAlpha(0.96f);
-                      } catch (Exception ignored) {}
+                      if (sortActiveView != view || !sortDragArmed) return;
+                      if (sortCrossPagePending && isFloating) {
+                          realignFloatingViewToFinger(view, rawY);
+                      } else {
+                          alignSortDragToFinger(view, rawY);
+                      }
+                      view.setAlpha(0.96f);
                   });
               }
           
@@ -3684,7 +3666,6 @@ jobs:
                           setSortControlsEnabled(false);
                           float rawY = event.getRawY();
                           updateSortAutoPage(event.getRawX(), rawY);
-                          if (sortActiveView != moving) return true;
                           updateSortAutoScroll(rawY);
                           // 跨页浮动模式下，使用 realignFloatingViewToFinger 保持跟随手指不漂移
                           boolean isFloating = moving.getParent() != parent;
@@ -3734,8 +3715,8 @@ jobs:
                           sortDragStartRawY = 0f;
                           sortDragLastRawY = 0f;
                           // 清理浮动拖拽视图
-                          if (sortFloatingView != null && sortFloatingView.getParent() instanceof android.view.ViewGroup) {
-                              try { ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView); } catch (Exception ignored) {}
+                          if (sortFloatingView != null && sortFloatingView.getParent() != null) {
+                              ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
                           }
                           sortFloatingView = null;
                           moving.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
@@ -3744,15 +3725,8 @@ jobs:
                           if (wasArmed && from >= 0 && to >= 0 && (from != to || sortCrossPagePending) && Math.abs(moving.getTranslationY()) >= dpToPx(18)) {
                               commitSortDrop(parent, moving, sortModeKey, sortModeType, from, to);
                           } else {
-                              if (sortCrossPageFromIndex >= 0) {
-                                  sortCrossPagePending = false;
-                                  sortCrossPageFromIndex = -1;
-                                  sortResumeDirection = 0;
-                                  renderSortPage();
-                              } else {
-                                  moving.animate().translationY(0f).setDuration(140).start();
-                                  resetDodgeAnimation(parent);
-                              }
+                              moving.animate().translationY(0f).setDuration(140).start();
+                              resetDodgeAnimation(parent);
                           }
                           return true;
                       }
@@ -3856,7 +3830,6 @@ jobs:
 
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
-                      if (child == null) continue;
                       if (child == moving) continue;
                       Object childTag = child.getTag();
                       if (!(childTag instanceof Integer)) continue;
@@ -3910,7 +3883,6 @@ jobs:
                       if (anyShifted) {
                           for (int i = headerCount; i < parent.getChildCount(); i++) {
                               View child = parent.getChildAt(i);
-                              if (child == null) continue;
                               Object childTag = child.getTag();
                               if (childTag instanceof Integer) continue;
                               // pagerView 和功能介绍等非条目视图跟随条目一起下移/回缩
@@ -3928,10 +3900,8 @@ jobs:
               }
           
               private void resetDodgeAnimation(LinearLayout parent) {
-                  if (parent == null) return;
                   for (int i = 0; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
-                      if (child == null) continue;
                       child.animate().cancel();
                       child.animate().translationY(0f).setDuration(150).start();
                   }
