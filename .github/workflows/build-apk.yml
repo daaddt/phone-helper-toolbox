@@ -1001,7 +1001,13 @@ jobs:
                   rootFrame = new FrameLayout(this);
                   rootFrame.setBackgroundColor(Color.rgb(10, 15, 25));
           
-                  rootScroll = new ScrollView(this);
+                  rootScroll = new ScrollView(this) {
+                      @Override
+                      protected void dispatchDraw(android.graphics.Canvas canvas) {
+                          try { super.dispatchDraw(canvas); }
+                          catch (NullPointerException e) { android.util.Log.w("ViewGroupGuard", "dispatchDraw: child list corrupted, skipping frame", e); }
+                      }
+                  };
                   rootScroll.setFillViewport(false);
                   rootScroll.setClipToPadding(false);
                   rootScroll.setClipChildren(false);
@@ -2331,19 +2337,21 @@ jobs:
                   // 方案A：拖拽恢复时先隐藏浮动视图，避免移除后重新添加时在原位置闪烁
                   View oldFloatingView = sortFloatingView;
                   if (shouldResumeDrag && sortFloatingView != null) {
-                      sortFloatingView.setAlpha(0f);
+                      try { sortFloatingView.setAlpha(0f); } catch (Exception ignored) {}
                   }
-                  if (sortFloatingView != null && sortFloatingView.getParent() != null) {
-                      ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
+                  if (sortFloatingView != null && sortFloatingView.getParent() instanceof android.view.ViewGroup) {
+                      try { ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView); } catch (Exception ignored) {}
                   }
                   sortFloatingView = null;
                   // 防御性清理 sortPage 中可能残留的浮动视图（索引>=3 的非固定子视图）
                   if (sortPage != null) {
                       for (int i = sortPage.getChildCount() - 1; i >= 3; i--) {
-                          View c = sortPage.getChildAt(i);
-                          if (c != null && c != sortList) {
-                              sortPage.removeView(c);
-                          }
+                          try {
+                              View c = sortPage.getChildAt(i);
+                              if (c != null && c != sortList) {
+                                  sortPage.removeView(c);
+                              }
+                          } catch (Exception ignored) {}
                       }
                   }
                   clearSortVisuals(sortList);
@@ -2391,7 +2399,7 @@ jobs:
                           // 拖回原页：恢复浮动视图到 sortPage，不渲染到列表中
                           // 浮动视图已被方案A隐藏（alpha=0），resumeSortDrag会恢复显示
                           sortFloatingView = oldFloatingView;
-                          sortPage.addView(oldFloatingView);
+                          try { sortPage.addView(oldFloatingView); } catch (Exception ignored) {}
                           sortCrossPagePending = false;
                           sortResumeDirection = 0;
                           sortCrossPageFromIndex = sortResumeDragIndex;
@@ -3726,8 +3734,8 @@ jobs:
                           sortDragStartRawY = 0f;
                           sortDragLastRawY = 0f;
                           // 清理浮动拖拽视图
-                          if (sortFloatingView != null && sortFloatingView.getParent() != null) {
-                              ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
+                          if (sortFloatingView != null && sortFloatingView.getParent() instanceof android.view.ViewGroup) {
+                              try { ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView); } catch (Exception ignored) {}
                           }
                           sortFloatingView = null;
                           moving.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
@@ -3932,21 +3940,23 @@ jobs:
               private void commitSortDrop(LinearLayout parent, final View moving, final String key, final String type, final int from, final int to) {
                   resetDodgeAnimation(parent);
                   moving.animate().translationY(0f).setDuration(160).withEndAction(() -> {
-                      boolean moved;
-                      if (sortCrossPagePending) {
-                          moved = commitCrossPageDrop(key, sortCrossPageFromIndex, to, sortResumeDirection);
-                      } else if (sortCrossPageFromIndex >= 0) {
-                          // 拖回原页后，from 是等效位置，实际原始索引在 sortCrossPageFromIndex 中
-                          moved = moveItemSilently(key, sortCrossPageFromIndex, to);
-                      } else {
-                          moved = moveItemSilently(key, from, to);
-                      }
-                      sortCrossPagePending = false;
-                      sortCrossPageFromIndex = -1;
-                      sortResumeDirection = 0;
-                      if (moved) {
-                          renderSortPage();
-                      }
+                      // post 到下一帧，避免动画结束回调与 dispatchDraw 竞争
+                      handler.post(() -> {
+                          boolean moved;
+                          if (sortCrossPagePending) {
+                              moved = commitCrossPageDrop(key, sortCrossPageFromIndex, to, sortResumeDirection);
+                          } else if (sortCrossPageFromIndex >= 0) {
+                              moved = moveItemSilently(key, sortCrossPageFromIndex, to);
+                          } else {
+                              moved = moveItemSilently(key, from, to);
+                          }
+                          sortCrossPagePending = false;
+                          sortCrossPageFromIndex = -1;
+                          sortResumeDirection = 0;
+                          if (moved) {
+                              renderSortPage();
+                          }
+                      });
                   }).start();
               }
           
@@ -4022,35 +4032,40 @@ jobs:
                   sortResumeDragIndex = from;
                   sortResumeRawY = rawY;
                   sortResumeDirection = direction;
-                  renderSortPage();
-                  showStatus("\u5df2\u81ea\u52a8\u6362\u9875\uff0c\u677e\u624b\u540e\u518d\u4fdd\u5b58\u4f4d\u7f6e");
+                  // post 到下一帧，确保 scrollBy 触发的 dispatchDraw 已完成后再修改 View 树
+                  handler.post(() -> {
+                      renderSortPage();
+                      showStatus("\u5df2\u81ea\u52a8\u6362\u9875\uff0c\u677e\u624b\u540e\u518d\u4fdd\u5b58\u4f4d\u7f6e");
+                  });
               }
           
               private void runSortAutoScrollTick() {
                   if (sortAutoScrollDirection == 0 || !sortDragArmed || rootScroll == null || sortActiveView == null || !"sort".equals(currentPage)) return;
                   LinearLayout parent = sortList;
                   if (parent == null) { stopSortAutoScroll(); return; }
-                  int before = rootScroll.getScrollY();
-                  int step = sortAutoScrollDirection * dpToPx(18);
-                  rootScroll.scrollBy(0, step);
-                  int actual = rootScroll.getScrollY() - before;
-                  if (actual != 0) {
-                      // 跨页浮动模式下，保持浮动视图跟随手指位置
-                      boolean isFloating = sortActiveView.getParent() != parent;
-                      if (sortCrossPagePending && isFloating) {
-                          // 滚动时保持 translationY 不变，这样相对于屏幕位置不变
-                          // 不需要调整 sortDragStartRawY，因为 realignFloatingViewToFinger 会直接对齐到手指
-                      } else {
-                          sortDragStartRawY -= actual;
-                          float dy = sortDragLastRawY - sortDragStartRawY;
-                          sortActiveView.setTranslationY(dy);
+                  try {
+                      int before = rootScroll.getScrollY();
+                      int step = sortAutoScrollDirection * dpToPx(18);
+                      rootScroll.scrollBy(0, step);
+                      int actual = rootScroll.getScrollY() - before;
+                      if (actual != 0) {
+                          // 跨页浮动模式下，保持浮动视图跟随手指位置
+                          boolean isFloating = sortActiveView.getParent() != parent;
+                          if (sortCrossPagePending && isFloating) {
+                              // 滚动时保持 translationY 不变，这样相对于屏幕位置不变
+                              // 不需要调整 sortDragStartRawY，因为 realignFloatingViewToFinger 会直接对齐到手指
+                          } else {
+                              sortDragStartRawY -= actual;
+                              float dy = sortDragLastRawY - sortDragStartRawY;
+                              sortActiveView.setTranslationY(dy);
+                          }
+                          int target2 = computeSortPendingIndex(parent, sortActiveView);
+                          if (target2 != sortDragPendingIndex) {
+                              sortDragPendingIndex = target2;
+                              applyDodgeAnimation(parent, sortActiveView, sortDragOriginalIndex, target2);
+                          }
                       }
-                      int target2 = computeSortPendingIndex(parent, sortActiveView);
-                      if (target2 != sortDragPendingIndex) {
-                          sortDragPendingIndex = target2;
-                          applyDodgeAnimation(parent, sortActiveView, sortDragOriginalIndex, target2);
-                      }
-                  }
+                  } catch (Exception ignored) {}
                   handler.postDelayed(sortAutoScrollTick, 28);
               }
           
