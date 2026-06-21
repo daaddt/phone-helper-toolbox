@@ -2337,6 +2337,15 @@ jobs:
                       ((android.view.ViewGroup) sortFloatingView.getParent()).removeView(sortFloatingView);
                   }
                   sortFloatingView = null;
+                  // 防御性清理 sortPage 中可能残留的浮动视图（索引>=3 的非固定子视图）
+                  if (sortPage != null) {
+                      for (int i = sortPage.getChildCount() - 1; i >= 3; i--) {
+                          View c = sortPage.getChildAt(i);
+                          if (c != null && c != sortList) {
+                              sortPage.removeView(c);
+                          }
+                      }
+                  }
                   clearSortVisuals(sortList);
                   sortList.removeAllViews();
                   applySortLayoutTransition(sortList, false);
@@ -2365,9 +2374,11 @@ jobs:
                           }
                           JSONObject obj = array.getJSONObject(i);
                           View child = "text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj);
-                          sortList.addView(child);
-                          if (shouldResumeDrag && i == sortResumeDragIndex) {
-                              resumeView = child;
+                          if (child != null) {
+                              sortList.addView(child);
+                              if (shouldResumeDrag && i == sortResumeDragIndex) {
+                                  resumeView = child;
+                              }
                           }
                       } catch (Exception ignored) {}
                   }
@@ -3599,13 +3610,15 @@ jobs:
                       applyDodgeAnimation(p, view, sortDragOriginalIndex, target2);
                   }
                   view.post(() -> {
-                      if (sortActiveView != view || !sortDragArmed) return;
-                      if (sortCrossPagePending && isFloating) {
-                          realignFloatingViewToFinger(view, rawY);
-                      } else {
-                          alignSortDragToFinger(view, rawY);
-                      }
-                      view.setAlpha(0.96f);
+                      try {
+                          if (sortActiveView != view || !sortDragArmed) return;
+                          if (sortCrossPagePending && isFloating) {
+                              realignFloatingViewToFinger(view, rawY);
+                          } else {
+                              alignSortDragToFinger(view, rawY);
+                          }
+                          view.setAlpha(0.96f);
+                      } catch (Exception ignored) {}
                   });
               }
           
