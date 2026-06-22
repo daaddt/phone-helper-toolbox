@@ -817,6 +817,7 @@ jobs:
               private boolean aiRenderScheduled = false;
               private long aiLastRenderAt = 0;
               private long aiLastSavedAt = 0;
+              private long aiTypingLastTargetAt = 0;
               private int rootBaseBottomPadding = 28;
               private int aiBaseBottomPadding = 20;
               private int textPageIndex = 0;
@@ -2811,13 +2812,17 @@ jobs:
                   aiTypingFinished = false;
                   aiTypingActive = index >= 0;
                   aiTypingDoneAction = null;
+                  aiTypingLastTargetAt = 0;
                   handler.removeCallbacks(aiTypingTicker);
                   if (aiTypingActive) handler.postDelayed(aiTypingTicker, 260);
               }
           
               private void pushAiTypingTarget(String fullText) {
                   if (!aiTypingActive || fullText == null) return;
-                  if (fullText.length() >= aiTypingTargetText.length()) aiTypingTargetText = fullText;
+                  if (fullText.length() >= aiTypingTargetText.length()) {
+                      aiTypingTargetText = fullText;
+                      aiTypingLastTargetAt = SystemClock.elapsedRealtime();
+                  }
               }
           
               private void finishAiTypewriter(String finalText, Runnable done) {
@@ -2872,6 +2877,16 @@ jobs:
                       stopAiTypewriter();
                       if (done != null) done.run();
                   } else {
+                      // 保护：如果目标文本超过 8 秒没有更新，自动停止打字机，避免无限等待
+                      long now = SystemClock.elapsedRealtime();
+                      if (aiTypingLastTargetAt > 0 && now - aiTypingLastTargetAt > 8000) {
+                          stopAiTypewriter();
+                          aiSending = false;
+                          streamingAssistantIndex = -1;
+                          updateAiSendingUi();
+                          showStatus("AI 响应超时，已停止等待");
+                          return;
+                      }
                       handler.postDelayed(aiTypingTicker, 140);
                   }
               }
@@ -3073,6 +3088,12 @@ jobs:
           
               private void renderAiMessages() {
                   if (aiMessageList == null) return;
+                  // 如果消息为空，直接清空列表和缓存，避免 canReuse 逻辑跳过清理
+                  if (aiMessages.length() == 0) {
+                      aiMessageList.removeAllViews();
+                      aiBubbleViews.clear();
+                      return;
+                  }
                   // 如果消息数量没变且已有缓存视图，只更新文本内容，避免 removeAllViews 全量重建
                   boolean canReuse = aiMessages.length() == aiBubbleViews.size();
                   if (canReuse) {
