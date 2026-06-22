@@ -2354,13 +2354,17 @@ jobs:
                           && sortResumeDragIndex >= start && sortResumeDragIndex < end;
                   for (int i = start; i < end; i++) {
                       try {
-                          if (isReturningHome && i == sortResumeDragIndex) {
-                              // 拖回原页：渲染占位视图保持高度，第一条位置自然空缺
+                          if (isReturningHome && i == start) {
+                              // 拖回原页：首行始终渲染占位视图保持高度
                               View placeholder = new LinearLayout(this);
                               placeholder.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(58)));
-                              placeholder.setTag("sortPlaceholder");
+                              placeholder.setTag(Integer.valueOf(i));
                               sortList.addView(placeholder);
                               resumeView = placeholder;
+                              continue;
+                          }
+                          if (isReturningHome && i == sortResumeDragIndex) {
+                              // 拖回原页：被拖拽条目的原始位置跳过（已在首行用占位符代替）
                               continue;
                           }
                           JSONObject obj = array.getJSONObject(i);
@@ -2379,12 +2383,13 @@ jobs:
                       if (isReturningHome && oldFloatingView != null) {
                           // 拖回原页：恢复浮动视图到 sortPage，不渲染到列表中
                           // 浮动视图已被方案A隐藏（alpha=0），resumeSortDrag会恢复显示
+                          // 占位符在首行(start)，resumeSortDrag传入start使拖拽从首行开始计算
                           sortFloatingView = oldFloatingView;
                           sortPage.addView(oldFloatingView);
                           sortCrossPagePending = false;
                           sortResumeDirection = 0;
                           sortCrossPageFromIndex = sortResumeDragIndex;
-                          resumeSortDrag(oldFloatingView, sortResumeDragIndex, sortResumeRawY);
+                          resumeSortDrag(oldFloatingView, start, sortResumeRawY);
                       } else {
                           resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
                       }
@@ -3847,10 +3852,10 @@ jobs:
                               }
                           }
                       } else if (isFloating && !sortCrossPagePending) {
-                          // 拖回原页：浮动视图仍在，原页第一条位置空缺
-                          // 被拖拽条目接触原页条目后，每个被接触的条目上移，视觉上互换位置
-                          // 从 pageStart 到 toIndex-1 的条目逐个上移（被拖拽条目越过的条目）
-                          if (childIndex >= pageStart && childIndex < toIndex && childIndex <= pageEnd) {
+                          // 拖回原页：浮动视图仍在，原页首行空缺（占位符在首行）
+                          // 被拖拽条目接触原页条目后，被接触到的条目上移，视觉上互换位置
+                          // toIndex 表示被接触到的条目索引，该条目上移
+                          if (childIndex >= pageStart && childIndex == toIndex && childIndex <= pageEnd) {
                               shift = -sortDragItemHeight;
                           }
                       } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
