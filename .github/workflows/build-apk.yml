@@ -785,7 +785,7 @@ jobs:
               private EditText longTextInput, splitSizeInput, titleInput, contentInput, linkTitleInput, linkUrlInput;
               private EditText aiInput, apiUrlInput, apiKeyInput, modelInput, systemPromptInput;
               private TextView statusText, timerDisplay, pomoDisplay, pomoStateText, pomoCountText, alarmStatusText;
-              private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, aiCancelButton, aiTestButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
+              private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, aiCancelButton, aiClearButton, aiTestButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
               private CheckBox pomoLoopCheck;
               private EditText timerMinuteInput, timerSecondInput, pomoFocusInput, pomoRestInput;
           
@@ -1945,7 +1945,7 @@ jobs:
               }
           
               private void buildAiPage() {
-                  aiPage.setPadding(20, 76, 20, aiBaseBottomPadding);
+                  aiPage.setPadding(20, 56, 20, aiBaseBottomPadding);
                   aiPage.setBackgroundColor(Color.rgb(7, 17, 31));
                   aiPage.addView(sectionTitle("AI\u804a\u5929"));
                   aiPage.addView(infoCard("\u5bf9\u8bdd\u9875\u5df2\u4f18\u5316\u4e3a\u7a33\u5b9a\u6d41\u5f0f\u663e\u793a\u3002\u5982\u679c AI \u56de\u590d\u5f02\u5e38\u6216\u89e6\u53d1\u5b89\u5168\u7b56\u7565\uff0c\u4f1a\u5728\u56de\u590d\u4e2d\u7ed9\u51fa\u8bca\u65ad\u63d0\u793a\u3002"));
@@ -1971,10 +1971,10 @@ jobs:
                   aiInputArea.addView(aiInput);
                   LinearLayout actions = row();
                   aiSendButton = button("\u53d1\u9001");
+                  aiClearButton = button("\u6e05\u7a7a");
                   aiCancelButton = button("\u53d6\u6d88");
                   aiCancelButton.setVisibility(View.GONE);
-                  Button clear = button("\u6e05\u7a7a");
-                  actions.addView(aiSendButton, weight()); actions.addView(aiCancelButton, weight()); actions.addView(clear, weight());
+                  actions.addView(aiSendButton, weight()); actions.addView(aiClearButton, weight()); actions.addView(aiCancelButton, weight());
                   aiInputArea.addView(actions);
                   aiPage.addView(aiInputArea);
                   aiSendButton.setOnClickListener(v -> sendAiMessage());
@@ -1986,7 +1986,8 @@ jobs:
                       updateAiSendingUi();
                       showStatus("AI \u8bf7\u6c42\u5df2\u53d6\u6d88");
                   });
-                  clear.setOnClickListener(v -> {
+                  aiClearButton.setOnClickListener(v -> {
+                      if (aiSending) { showStatus("AI \u56de\u590d\u4e2d\uff0c\u8bf7\u5148\u53d6\u6d88\u6216\u7b49\u5f85\u5b8c\u6210"); return; }
                       aiMessages = new JSONArray();
                       saveAiMessages();
                       renderAiMessages();
@@ -2813,6 +2814,9 @@ jobs:
                   aiSendButton.setEnabled(!aiSending);
                   aiSendButton.setText(aiSending ? "\u53d1\u9001\u4e2d..." : "\u53d1\u9001");
                   aiSendButton.setAlpha(aiSending ? 0.55f : 1f);
+                  if (aiClearButton != null) {
+                      aiClearButton.setVisibility(aiSending ? View.GONE : View.VISIBLE);
+                  }
                   if (aiCancelButton != null) {
                       aiCancelButton.setVisibility(aiSending ? View.VISIBLE : View.GONE);
                   }
@@ -3075,7 +3079,7 @@ jobs:
                               TextView tv = cached.findViewWithTag("aiBubbleText_" + index);
                               if (tv != null) {
                                   tv.setText(content);
-                                  tv.requestLayout();
+                                  if (tv.getParent() instanceof View) ((View) tv.getParent()).requestLayout();
                                   if ("ai".equals(currentPage) && aiMessageScroll != null) {
                                       aiMessageScroll.post(() -> { aiMessageScroll.smoothScrollTo(0, aiMessageList.getBottom()); reapplyAiKeyboardOffset(); });
                                   }
