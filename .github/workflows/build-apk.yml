@@ -3853,9 +3853,10 @@ jobs:
                           }
                       } else if (isFloating && !sortCrossPagePending) {
                           // 拖回原页：浮动视图仍在，原页首行空缺（占位符在首行）
-                          // 被拖拽条目接触原页条目后，被接触到的条目上移，视觉上互换位置
-                          // toIndex 表示被接触到的条目索引，该条目上移
-                          if (childIndex >= pageStart && childIndex == toIndex && childIndex <= pageEnd) {
+                          // 累积式让位：从上往下，被接触到的每一行都保持上移，不会回弹
+                          // 从下往上，之前上移的行逐个回弹（下移回原位）
+                          // 跳过占位符(pageStart)，实际条目从 pageStart+1 到 toIndex 都上移
+                          if (childIndex > pageStart && childIndex <= toIndex && childIndex <= pageEnd) {
                               shift = -sortDragItemHeight;
                           }
                       } else if (fromIndex < toIndex && childIndex > fromIndex && childIndex <= toIndex) shift = -sortDragItemHeight;
