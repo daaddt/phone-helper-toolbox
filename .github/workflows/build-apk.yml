@@ -785,7 +785,7 @@ jobs:
               private EditText longTextInput, splitSizeInput, titleInput, contentInput, linkTitleInput, linkUrlInput;
               private EditText aiInput, apiUrlInput, apiKeyInput, modelInput, systemPromptInput;
               private TextView statusText, timerDisplay, pomoDisplay, pomoStateText, pomoCountText, alarmStatusText;
-              private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, aiTestButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
+              private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, aiCancelButton, aiTestButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
               private CheckBox pomoLoopCheck;
               private EditText timerMinuteInput, timerSecondInput, pomoFocusInput, pomoRestInput;
           
@@ -1971,11 +1971,21 @@ jobs:
                   aiInputArea.addView(aiInput);
                   LinearLayout actions = row();
                   aiSendButton = button("\u53d1\u9001");
+                  aiCancelButton = button("\u53d6\u6d88");
+                  aiCancelButton.setVisibility(View.GONE);
                   Button clear = button("\u6e05\u7a7a");
-                  actions.addView(aiSendButton, weight()); actions.addView(clear, weight());
+                  actions.addView(aiSendButton, weight()); actions.addView(aiCancelButton, weight()); actions.addView(clear, weight());
                   aiInputArea.addView(actions);
                   aiPage.addView(aiInputArea);
                   aiSendButton.setOnClickListener(v -> sendAiMessage());
+                  aiCancelButton.setOnClickListener(v -> {
+                      aiCancelled = true;
+                      stopAiTypewriter();
+                      aiSending = false;
+                      streamingAssistantIndex = -1;
+                      updateAiSendingUi();
+                      showStatus("AI \u8bf7\u6c42\u5df2\u53d6\u6d88");
+                  });
                   clear.setOnClickListener(v -> {
                       aiMessages = new JSONArray();
                       saveAiMessages();
@@ -2803,6 +2813,9 @@ jobs:
                   aiSendButton.setEnabled(!aiSending);
                   aiSendButton.setText(aiSending ? "\u53d1\u9001\u4e2d..." : "\u53d1\u9001");
                   aiSendButton.setAlpha(aiSending ? 0.55f : 1f);
+                  if (aiCancelButton != null) {
+                      aiCancelButton.setVisibility(aiSending ? View.VISIBLE : View.GONE);
+                  }
                   if (aiTestButton != null) {
                       aiTestButton.setEnabled(!aiSending);
                       aiTestButton.setAlpha(aiSending ? 0.55f : 1f);
@@ -2882,15 +2895,10 @@ jobs:
                       stopAiTypewriter();
                       if (done != null) done.run();
                   } else {
-                      // 保护：如果目标文本超过 8 秒没有更新，自动停止打字机，避免无限等待
+                      // 8秒后提示用户响应较慢，但继续等待，让用户自主选择是否取消
                       long now = SystemClock.elapsedRealtime();
                       if (aiTypingLastTargetAt > 0 && now - aiTypingLastTargetAt > 8000) {
-                          stopAiTypewriter();
-                          aiSending = false;
-                          streamingAssistantIndex = -1;
-                          updateAiSendingUi();
-                          showStatus("AI 响应超时，已停止等待");
-                          return;
+                          showStatus("AI 响应较慢，可点击取消停止等待");
                       }
                       handler.postDelayed(aiTypingTicker, 140);
                   }
@@ -2997,7 +3005,7 @@ jobs:
                       return buildAiEmptyReplyDiagnosis(raw);
                   }
                   if (lower.contains("timeout") || lower.contains("timed out")) {
-                      return "AI 回复异常：连接或读取超时。\n\n建议检查网络状态，或稍后重试；如果模型响应很慢，可以换一个响应更快的模型。";
+                      return "AI 回复异常：连接或读取超时。\n\n建议检查网络状态，或稍后重试；如果模型响应很慢，可以换一个响应更快的模型。\n\n原始信息：\n" + limitText(raw, 500);
                   }
                   if (lower.contains("unknownhost") || lower.contains("failed to connect") || lower.contains("connection refused")) {
                       return "AI 回复异常：无法连接到接口地址。\n\n建议检查 API 地址是否正确、网络是否可用，以及接口服务是否在线。";
@@ -3157,7 +3165,8 @@ jobs:
                   LinearLayout wrap = new LinearLayout(this);
                   wrap.setOrientation(LinearLayout.VERTICAL);
                   wrap.setGravity(user ? Gravity.RIGHT : Gravity.LEFT);
-                  TextView tv = text((user ? "你\n" : "AI\n") + content, 15, Color.WHITE);
+                  String cleanContent = content == null ? "" : content.trim();
+                  TextView tv = text((user ? "你\n" : "AI\n") + cleanContent, 15, Color.WHITE);
                   // 设置 tag 以便缓存查找时快速定位 TextView
                   tv.setTag("aiBubbleText_" + index);
                   GradientDrawable bg = new GradientDrawable();
