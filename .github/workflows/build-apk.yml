@@ -785,7 +785,7 @@ jobs:
               private EditText longTextInput, splitSizeInput, titleInput, contentInput, linkTitleInput, linkUrlInput;
               private EditText aiInput, apiUrlInput, apiKeyInput, modelInput, systemPromptInput;
               private TextView statusText, timerDisplay, pomoDisplay, pomoStateText, pomoCountText, alarmStatusText;
-              private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
+              private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, aiTestButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
               private CheckBox pomoLoopCheck;
               private EditText timerMinuteInput, timerSecondInput, pomoFocusInput, pomoRestInput;
           
@@ -2007,6 +2007,7 @@ jobs:
                   LinearLayout actions = row();
                   Button save = button("\u4fdd\u5b58\u8bbe\u7f6e");
                   Button test = button("\u6d4b\u8bd5\u8fde\u63a5");
+                  aiTestButton = test;
                   Button defaults = button("\u9ed8\u8ba4\u914d\u7f6e");
                   actions.addView(save, weight()); actions.addView(test, weight()); actions.addView(defaults, weight());
                   aiSettingsPage.addView(actions);
@@ -2802,6 +2803,10 @@ jobs:
                   aiSendButton.setEnabled(!aiSending);
                   aiSendButton.setText(aiSending ? "\u53d1\u9001\u4e2d..." : "\u53d1\u9001");
                   aiSendButton.setAlpha(aiSending ? 0.55f : 1f);
+                  if (aiTestButton != null) {
+                      aiTestButton.setEnabled(!aiSending);
+                      aiTestButton.setAlpha(aiSending ? 0.55f : 1f);
+                  }
               }
           
               private void startAiTypewriter(int index) {
@@ -3062,6 +3067,7 @@ jobs:
                               TextView tv = cached.findViewWithTag("aiBubbleText_" + index);
                               if (tv != null) {
                                   tv.setText(content);
+                                  tv.requestLayout();
                                   if ("ai".equals(currentPage) && aiMessageScroll != null) {
                                       aiMessageScroll.post(() -> { aiMessageScroll.smoothScrollTo(0, aiMessageList.getBottom()); reapplyAiKeyboardOffset(); });
                                   }
