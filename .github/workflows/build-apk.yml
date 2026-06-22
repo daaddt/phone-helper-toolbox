@@ -2358,7 +2358,7 @@ jobs:
                               // 拖回原页：渲染占位视图保持高度，第一条位置自然空缺
                               View placeholder = new LinearLayout(this);
                               placeholder.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(58)));
-                              placeholder.setTag(Integer.valueOf(i));
+                              placeholder.setTag("sortPlaceholder");
                               sortList.addView(placeholder);
                               resumeView = placeholder;
                               continue;
