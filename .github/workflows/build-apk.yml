@@ -818,6 +818,7 @@ jobs:
               private long aiLastRenderAt = 0;
               private long aiLastSavedAt = 0;
               private long aiTypingLastTargetAt = 0;
+              private boolean aiSlowHintShown = false;
               private int rootBaseBottomPadding = 28;
               private int aiBaseBottomPadding = 20;
               private int textPageIndex = 0;
@@ -1945,7 +1946,7 @@ jobs:
               }
           
               private void buildAiPage() {
-                  aiPage.setPadding(20, 56, 20, aiBaseBottomPadding);
+                  aiPage.setPadding(20, 86, 20, aiBaseBottomPadding);
                   aiPage.setBackgroundColor(Color.rgb(7, 17, 31));
                   aiPage.addView(sectionTitle("AI\u804a\u5929"));
                   aiPage.addView(infoCard("\u5bf9\u8bdd\u9875\u5df2\u4f18\u5316\u4e3a\u7a33\u5b9a\u6d41\u5f0f\u663e\u793a\u3002\u5982\u679c AI \u56de\u590d\u5f02\u5e38\u6216\u89e6\u53d1\u5b89\u5168\u7b56\u7565\uff0c\u4f1a\u5728\u56de\u590d\u4e2d\u7ed9\u51fa\u8bca\u65ad\u63d0\u793a\u3002"));
@@ -2789,8 +2790,18 @@ jobs:
                               boolean hasReply = reply != null && !reply.trim().isEmpty();
                               boolean safetyLike = hasReply && looksLikeSafetyReply(reply);
                               String finalText = hasReply ? withSafetyDiagnosisIfNeeded(reply) : buildAiEmptyReplyDiagnosis("模型返回了空内容。");
+                              // 如果检测到安全回复，直接停止打字机并显示诊断，避免原始内容先浮现
+                              if (safetyLike) {
+                                  stopAiTypewriter();
+                                  if (streamingIdx >= 0) updateAiMessage(streamingIdx, "assistant", finalText);
+                                  else appendAiMessage("assistant", finalText);
+                                  showStatus("AI 回复可能触发安全策略，已附加诊断提示");
+                                  aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi();
+                                  saveAiMessages(); renderAiMessages();
+                                  return;
+                              }
                               finishAiTypewriter(finalText, () -> {
-                                  showStatus(!hasReply ? "AI 没有返回有效内容，已给出诊断建议" : (safetyLike ? "AI 回复可能触发安全策略，已附加诊断提示" : "AI 回复完成"));
+                                  showStatus(!hasReply ? "AI 没有返回有效内容，已给出诊断建议" : "AI 回复完成");
                                   aiSending = false; streamingAssistantIndex = -1; updateAiSendingUi();
                                   saveAiMessages();
                                   renderAiMessages();
@@ -2836,6 +2847,7 @@ jobs:
                   aiTypingActive = index >= 0;
                   aiTypingDoneAction = null;
                   aiTypingLastTargetAt = 0;
+                  aiSlowHintShown = false;
                   handler.removeCallbacks(aiTypingTicker);
                   if (aiTypingActive) handler.postDelayed(aiTypingTicker, 260);
               }
@@ -2900,9 +2912,10 @@ jobs:
                       stopAiTypewriter();
                       if (done != null) done.run();
                   } else {
-                      // 8秒后提示用户响应较慢，但继续等待，让用户自主选择是否取消
+                      // 8秒后提示用户响应较慢，但只提示一次
                       long now = SystemClock.elapsedRealtime();
-                      if (aiTypingLastTargetAt > 0 && now - aiTypingLastTargetAt > 8000) {
+                      if (!aiSlowHintShown && aiTypingLastTargetAt > 0 && now - aiTypingLastTargetAt > 8000) {
+                          aiSlowHintShown = true;
                           showStatus("AI 响应较慢，可点击取消停止等待");
                       }
                       handler.postDelayed(aiTypingTicker, 140);
