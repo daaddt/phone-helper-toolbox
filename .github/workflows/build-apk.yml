@@ -4412,7 +4412,7 @@ jobs:
         with:
           name: ${{ steps.rename.outputs.apk_name }}
           path: ${{ steps.rename.outputs.apk_path }}
-          if-no-files-found: error
+          if-no-files-found: erro
           retention-days: 14
 
       - name: Upload build reports on failure
