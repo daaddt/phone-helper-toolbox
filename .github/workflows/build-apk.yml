@@ -783,7 +783,7 @@ jobs:
               private ScrollView aiMessageScroll;
               private LinearLayout rootContainer;
               private EditText longTextInput, splitSizeInput, titleInput, contentInput, linkTitleInput, linkUrlInput;
-              private EditText aiInput, apiUrlInput, apiKeyInput, modelInput, systemPromptInput;
+              private EditText aiInput, apiUrlInput, apiKeyInput, modelInput, systemPromptInput, contextRoundInput;
               private TextView statusText, timerDisplay, pomoDisplay, pomoStateText, pomoCountText, alarmStatusText;
               private Button stopwatchTab, countdownTab, timerStartPause, aiSendButton, aiCancelButton, aiClearButton, aiTestButton, textSaveButton, linkSaveButton, textCancelEditButton, linkCancelEditButton;
               private CheckBox pomoLoopCheck;
@@ -2024,6 +2024,11 @@ jobs:
                   systemPromptInput.setMinLines(4);
                   systemPromptInput.setText(pref.getString("aiSystemPrompt", "\u4f60\u662f\u4e00\u4e2a\u8010\u5fc3\u3001\u6709\u903b\u8f91\u3001\u8bf4\u4e2d\u6587\u7684\u667a\u80fd\u52a9\u624b\u3002\u56de\u7b54\u8981\u6e05\u6670\u3001\u5b9e\u7528\u3001\u4e0d\u8fc7\u5ea6\u541b\u541b\u3002"));
                   aiSettingsPage.addView(labelWrap("\u667a\u80fd\u4f53\u8bbe\u5b9a", systemPromptInput));
+                  contextRoundInput = inputBox("\u4e0a\u4e0b\u6587\u8f6e\u6570");
+                  contextRoundInput.setSingleLine(true);
+                  contextRoundInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+                  contextRoundInput.setText(String.valueOf(pref.getInt("aiContextRounds", 8)));
+                  aiSettingsPage.addView(labelWrap("\u4e0a\u4e0b\u6587\u8f6e\u6570\uff081-32\uff0c\u8d8a\u5c0f\u54cd\u5e94\u8d8a\u5feb\uff09", contextRoundInput));
                   LinearLayout actions = row();
                   Button save = button("\u4fdd\u5b58\u8bbe\u7f6e");
                   Button test = button("\u6d4b\u8bd5\u8fde\u63a5");
@@ -2899,6 +2904,13 @@ jobs:
                   if (!aiTypingActive || aiTypingMessageIndex < 0) return;
                   String target = aiTypingTargetText == null ? "" : aiTypingTargetText;
                   if (target.isEmpty()) {
+                      // 等待数据时也检查8秒超时提示
+                      long now = SystemClock.elapsedRealtime();
+                      long lastActivity = aiTypingLastTargetAt > 0 ? aiTypingLastTargetAt : aiTypingStartedAt;
+                      if (!aiSlowHintShown && lastActivity > 0 && now - lastActivity > 8000) {
+                          aiSlowHintShown = true;
+                          if (aiSlowHintView != null) aiSlowHintView.setVisibility(View.VISIBLE);
+                      }
                       handler.postDelayed(aiTypingTicker, 180);
                       return;
                   }
@@ -2949,7 +2961,7 @@ jobs:
                       sys.put("role", "system"); sys.put("content", systemPrompt);
                       apiMessages.put(sys);
                   }
-                  int start = Math.max(0, aiMessages.length() - 16);
+                  int start = Math.max(0, aiMessages.length() - pref.getInt("aiContextRounds", 8));
                   for (int i = start; i < aiMessages.length(); i++) apiMessages.put(aiMessages.getJSONObject(i));
                   body.put("messages", apiMessages);
                   body.put("temperature", 0.7);
@@ -3301,15 +3313,20 @@ jobs:
               }
           
               private void saveAiSettings() {
+                  int rounds = 8;
+                  try { rounds = Integer.parseInt(contextRoundInput.getText().toString().trim()); } catch (Exception ignored) {}
+                  rounds = Math.max(1, Math.min(32, rounds));
                   pref.edit().putString("aiApiUrl", apiUrlInput.getText().toString().trim())
                         .putString("aiApiKey", apiKeyInput.getText().toString().trim())
                         .putString("aiModel", modelInput.getText().toString().trim())
-                        .putString("aiSystemPrompt", systemPromptInput.getText().toString().trim()).apply();
+                        .putString("aiSystemPrompt", systemPromptInput.getText().toString().trim())
+                        .putInt("aiContextRounds", rounds).apply();
               }
           
               private void fillDefaultAiSettings() {
                   apiUrlInput.setText("https://openrouter.ai/api/v1/chat/completions");
                   modelInput.setText("openrouter/free");
+                  contextRoundInput.setText("8");
                   if (systemPromptInput.getText().toString().trim().isEmpty()) {
                       systemPromptInput.setText("\u4f60\u662f\u4e00\u4e2a\u8010\u5fc3\u3001\u6709\u903b\u8f91\u3001\u8bf4\u4e2d\u6587\u7684\u667a\u80fd\u52a9\u624b\u3002\u56de\u7b54\u8981\u6e05\u6670\u3001\u5b9e\u7528\u3001\u4e0d\u8fc7\u5ea6\u541b\u541b\u3002");
                   }
