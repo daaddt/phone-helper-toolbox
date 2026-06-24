@@ -2377,8 +2377,8 @@ jobs:
                   boolean virtualMoving = shouldResumeDrag && (sortResumeDragIndex < start || sortResumeDragIndex >= end);
                   // 目标页只渲染本页原有条目，不包含被拖拽条目
                   // 拖回原页时，被拖拽条目位置渲染占位视图保持高度
-                  boolean isReturningHome = shouldResumeDrag && sortCrossPagePending && sortCrossPageFromIndex >= 0
-                          && oldFloatingView != null && sortResumeDragIndex >= start && sortResumeDragIndex < end;
+                  boolean isReturningHome = shouldResumeDrag && sortCrossPagePending && oldFloatingView != null
+                          && sortResumeDragIndex >= start && sortResumeDragIndex < end;
                   for (int i = start; i < end; i++) {
                       try {
                           if (isReturningHome && i == start) {
@@ -4021,13 +4021,17 @@ jobs:
                           moved = commitCrossPageDrop(key, sortCrossPageFromIndex, to, sortResumeDirection);
                       } else if (sortCrossPageFromIndex >= 0) {
                           // 拖回原页后，from 是等效位置，实际原始索引在 sortCrossPageFromIndex 中
-                          moved = moveItemSilently(key, sortCrossPageFromIndex, to);
+                          // 如果目标位置在当前页首行之上，修正为首行
+                          int targetPageStart = sortPageIndex * PAGE_SIZE;
+                          int adjustedTo = Math.max(targetPageStart, to);
+                          moved = moveItemSilently(key, sortCrossPageFromIndex, adjustedTo);
                       } else {
                           moved = moveItemSilently(key, from, to);
                       }
                       sortCrossPagePending = false;
                       sortCrossPageFromIndex = -1;
                       sortResumeDirection = 0;
+                      sortResumeDragIndex = -1;
                       if (moved) {
                           renderSortPage();
                       }
