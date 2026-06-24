@@ -2872,6 +2872,11 @@ jobs:
                   if (fullText.length() >= aiTypingTargetText.length()) {
                       aiTypingTargetText = fullText;
                       aiTypingLastTargetAt = SystemClock.elapsedRealtime();
+                      // AI 重新吐字时隐藏慢速提示，重置标志
+                      if (aiSlowHintShown) {
+                          aiSlowHintShown = false;
+                          if (aiSlowHintView != null) aiSlowHintView.setVisibility(View.GONE);
+                      }
                   }
               }
           
