@@ -4028,6 +4028,7 @@ jobs:
                       sortCrossPagePending = false;
                       sortCrossPageFromIndex = -1;
                       sortResumeDirection = 0;
+                      sortResumeDragIndex = -1;
                       if (moved) {
                           renderSortPage();
                       }
