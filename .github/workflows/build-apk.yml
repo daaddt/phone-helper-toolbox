@@ -2399,7 +2399,6 @@ jobs:
                       try {
                           JSONObject obj = array.getJSONObject(sortResumeDragIndex);
                           View floating = "text".equals(type) ? savedTextCard(sortResumeDragIndex, obj) : linkCard(sortResumeDragIndex, obj);
-                          floating.setAlpha(0f);
                           sortFloatingView = floating;
                           sortPage.addView(floating);
                           resumeSortDrag(floating, sortResumeDragIndex, sortResumeRawY);
@@ -3658,18 +3657,21 @@ jobs:
                   int[] loc = new int[2];
                   view.getLocationOnScreen(loc);
                   boolean layoutReady = loc[1] > 0 || view.getHeight() > 0;
-                  if (!layoutReady) {
+                  boolean isFloating = view.getParent() != sortList;
+                  // 跨页浮动视图：先隐藏，等 post 回调中位置正确后再显示
+                  if (sortCrossPagePending && isFloating) {
+                      view.setAlpha(0f);
+                  } else if (!layoutReady) {
                       view.setAlpha(0f);
                   }
                   // 跨页浮动模式下使用 realignFloatingViewToFinger 保持位置不漂移
-                  boolean isFloating = view.getParent() != sortList;
                   if (sortCrossPagePending && isFloating) {
                       realignFloatingViewToFinger(view, rawY);
                   } else {
                       alignSortDragToFinger(view, rawY);
                   }
-                  // 方案A：布局就绪时显示视图；布局未就绪时保持隐藏，等post()回调后显示
-                  if (layoutReady) {
+                  // 同页且布局就绪时立即恢复；浮动视图等 post 回调
+                  if (layoutReady && !isFloating) {
                       view.setAlpha(0.96f);
                   }
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) view.setElevation(18f);
