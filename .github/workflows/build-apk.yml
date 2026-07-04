@@ -976,9 +976,20 @@ jobs:
                   reconcileAlarmSchedules();
                   // 切到后台时停止排序自动滚动和 AI 打字机，避免内存泄漏和无效回调
                   stopSortAutoScroll();
-                  stopAiTypewriter();
-                  // 取消正在进行的 AI 网络请求
-                  aiCancelled = true;
+                  // 取消正在进行的 AI 网络请求，保存半截回复到消息中
+                  if (aiSending) {
+                      aiCancelled = true;
+                      // 将打字机当前已显示的文本保存到消息数组中
+                      if (streamingAssistantIndex >= 0 && !aiTypingDisplayText.isEmpty()) {
+                          try {
+                              aiMessages.getJSONObject(streamingAssistantIndex).put("content", aiTypingDisplayText);
+                              saveAiMessages();
+                          } catch (Exception ignored) {}
+                      }
+                      aiSending = false;
+                      streamingAssistantIndex = -1;
+                      stopAiTypewriter();
+                  }
               }
           
               @Override
