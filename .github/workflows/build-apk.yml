@@ -2399,6 +2399,7 @@ jobs:
                       try {
                           JSONObject obj = array.getJSONObject(sortResumeDragIndex);
                           View floating = "text".equals(type) ? savedTextCard(sortResumeDragIndex, obj) : linkCard(sortResumeDragIndex, obj);
+                          floating.setAlpha(0f);
                           sortFloatingView = floating;
                           sortPage.addView(floating);
                           resumeSortDrag(floating, sortResumeDragIndex, sortResumeRawY);
