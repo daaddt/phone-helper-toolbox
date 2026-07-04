@@ -976,6 +976,12 @@ jobs:
                   reconcileAlarmSchedules();
                   // 切到后台时停止排序自动滚动，避免内存泄漏和无效回调
                   stopSortAutoScroll();
+                  // 保存分段复制输入内容
+                  if (longTextInput != null) {
+                      String text = longTextInput.getText().toString();
+                      String size = splitSizeInput != null ? splitSizeInput.getText().toString() : "3000";
+                      pref.edit().putString("splitInputText", text).putString("splitInputSize", size).apply();
+                  }
               }
           
               @Override
@@ -1041,6 +1047,11 @@ jobs:
           
                   setContentView(rootFrame);
                   installKeyboardGuard();
+                  // 恢复分段复制输入内容
+                  String savedSplitText = pref.getString("splitInputText", "");
+                  if (!savedSplitText.isEmpty() && longTextInput != null) {
+                      longTextInput.setText(savedSplitText);
+                  }
                   showPage("home");
               }
           
@@ -1090,7 +1101,7 @@ jobs:
                   longTextInput.setGravity(Gravity.TOP);
                   splitPage.addView(longTextInput);
                   splitSizeInput = inputBox("\u6bcf\u6bb5\u6700\u5927\u5b57\u6570\uff0c\u9ed8\u8ba4 3000");
-                  splitSizeInput.setText("3000");
+                  splitSizeInput.setText(pref.getString("splitInputSize", "3000"));
                   splitSizeInput.setSingleLine(true);
                   splitPage.addView(labelWrap("\u5206\u6bb5\u957f\u5ea6", splitSizeInput));
                   LinearLayout actions = row();
@@ -1104,7 +1115,7 @@ jobs:
                   splitPage.addView(splitResultList);
                   importFile.setOnClickListener(v -> chooseTextFile());
                   generate.setOnClickListener(v -> generateChunks());
-                  clear.setOnClickListener(v -> { longTextInput.setText(""); splitResultList.removeAllViews(); showStatus("\u5df2\u6e05\u7a7d"); });
+                  clear.setOnClickListener(v -> { longTextInput.setText(""); splitResultList.removeAllViews(); pref.edit().remove("splitInputText").apply(); showStatus("\u5df2\u6e05\u7a7d"); });
               }
           
               private void buildTextPage() {
