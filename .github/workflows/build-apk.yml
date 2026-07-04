@@ -3991,6 +3991,7 @@ jobs:
           
               private void commitSortDrop(LinearLayout parent, final View moving, final String key, final String type, final int from, final int to) {
                   resetDodgeAnimation(parent);
+                  if (from != to) moving.setAlpha(0f);
                   moving.animate().translationY(0f).setDuration(160).withEndAction(() -> {
                       boolean moved;
                       if (sortCrossPagePending) {
