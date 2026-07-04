@@ -3823,7 +3823,10 @@ jobs:
                       Object childTag = parent.getChildAt(i).getTag();
                       if (childTag instanceof Integer && parent.getChildAt(i) != moving) itemCount++;
                   }
-                  if (itemCount <= 1) return sortDragOriginalIndex;
+                  if (itemCount <= 1) {
+                      if (sortCrossPagePending && isFloating) return pageStart;
+                      return sortDragOriginalIndex;
+                  }
 
                   boolean isFloating = moving.getParent() != parent;
                   int[] movingLoc = new int[2];
