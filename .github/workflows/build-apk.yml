@@ -2375,25 +2375,14 @@ jobs:
                   int start = sortPageIndex * PAGE_SIZE;
                   int end = Math.min(array.length(), start + PAGE_SIZE);
                   boolean virtualMoving = shouldResumeDrag && (sortResumeDragIndex < start || sortResumeDragIndex >= end);
-                  // 目标页只渲染本页原有条目，不包含被拖拽条目
-                  // 拖回原页时，被拖拽条目位置渲染占位视图保持高度
-                  boolean isReturningHome = shouldResumeDrag && sortCrossPagePending && oldFloatingView != null
-                          && sortResumeDragIndex >= start && sortResumeDragIndex < end;
+                  // 跨页拖回原页：清理跨页标志，恢复为同页拖拽
+                  if (shouldResumeDrag && !virtualMoving && sortCrossPagePending) {
+                      sortCrossPagePending = false;
+                      sortCrossPageFromIndex = -1;
+                      sortResumeDirection = 0;
+                  }
                   for (int i = start; i < end; i++) {
                       try {
-                          if (isReturningHome && i == start) {
-                              // 拖回原页：首行始终渲染占位视图保持高度
-                              View placeholder = new LinearLayout(this);
-                              placeholder.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(58)));
-                              placeholder.setTag(Integer.valueOf(i));
-                              sortList.addView(placeholder);
-                              resumeView = placeholder;
-                              continue;
-                          }
-                          if (isReturningHome && i == sortResumeDragIndex) {
-                              // 拖回原页：被拖拽条目的原始位置跳过（已在首行用占位符代替）
-                              continue;
-                          }
                           JSONObject obj = array.getJSONObject(i);
                           View child = "text".equals(type) ? savedTextCard(i, obj) : linkCard(i, obj);
                           sortList.addView(child);
@@ -2404,22 +2393,7 @@ jobs:
                   }
                   sortList.addView(pagerView("\u6392\u5e8f", sortPageIndex, pageCount(array.length()), () -> changeSortPage(-1), () -> changeSortPage(1)));
                   if (shouldResumeDrag && resumeView != null) {
-                      // 同页恢复：直接恢复拖拽
-                      // 如果从其他页拖回原页，浮动视图保持浮动，不插入列表
-                      // 原页第一条位置自然空缺，其余条目保持原位
-                      if (isReturningHome && oldFloatingView != null) {
-                          // 拖回原页：恢复浮动视图到 sortPage，不渲染到列表中
-                          // 浮动视图已被方案A隐藏（alpha=0），resumeSortDrag会恢复显示
-                          // 占位符在首行(start)，resumeSortDrag传入start使拖拽从首行开始计算
-                          sortFloatingView = oldFloatingView;
-                          sortPage.addView(oldFloatingView);
-                          sortCrossPagePending = false;
-                          sortResumeDirection = 0;
-                          sortCrossPageFromIndex = sortResumeDragIndex;
-                          resumeSortDrag(oldFloatingView, start, sortResumeRawY);
-                      } else {
-                          resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
-                      }
+                      resumeSortDrag(resumeView, sortResumeDragIndex, sortResumeRawY);
                   } else if (shouldResumeDrag && virtualMoving) {
                       // 跨页恢复：创建浮动拖拽视图附加到 sortPage，不占 sortList 槽位
                       try {
@@ -3363,11 +3337,9 @@ jobs:
                       addDefaultText(texts, "OpenRouter API \u5730\u5740", "https://openrouter.ai/api/v1/chat/completions");
                       addDefaultText(texts, "OpenRouter \u514d\u8d39\u6a21\u578b", "openrouter/free");
                       JSONArray links = new JSONArray();
-                      addDefaultLink(links, "GitHub", "https://github.com");
-                      addDefaultLink(links, "OpenRouter", "https://openrouter.ai");
-                      addDefaultLink(links, "OpenRouter Keys", "https://openrouter.ai/settings/keys");
-                      addDefaultLink(links, "DeepSeek API", "https://platform.deepseek.com");
-                      addDefaultLink(links, "Netlify Drop", "https://app.netlify.com/drop");
+                      for (int i = 0; i < 24; i++) {
+                          addDefaultLink(links, "11", "11");
+                      }
                       pref.edit().putString("texts", texts.toString()).putString("links", links.toString())
                             .putBoolean("defaultsReady", true).putInt("pomoFocusMin", 25).putInt("pomoRestMin", 5).apply();
                   }
