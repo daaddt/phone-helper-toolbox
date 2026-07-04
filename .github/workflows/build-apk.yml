@@ -3824,6 +3824,7 @@ jobs:
                       if (childTag instanceof Integer && parent.getChildAt(i) != moving) itemCount++;
                   }
                   if (itemCount <= 1) {
+                      boolean isFloating = moving.getParent() != parent;
                       if (sortCrossPagePending && isFloating) return pageStart;
                       return sortDragOriginalIndex;
                   }
