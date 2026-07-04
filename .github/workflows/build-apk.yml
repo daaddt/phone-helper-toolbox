@@ -3913,18 +3913,6 @@ jobs:
                       crossPageShiftCount = toIndex - pageStart;
                   }
 
-                  // 计算目标页实际条目数，用于判断唯一条目时的特殊动画
-                  int targetPageCount = 0;
-                  for (int j = headerCount; j < parent.getChildCount(); j++) {
-                      View c = parent.getChildAt(j);
-                      if (c == moving) continue;
-                      Object t = c.getTag();
-                      if (t instanceof Integer) {
-                          int idx = ((Integer) t).intValue();
-                          if (idx >= pageStart && idx <= pageEnd) targetPageCount++;
-                      }
-                  }
-
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
                       if (child == moving) continue;
@@ -3944,13 +3932,9 @@ jobs:
                               // 所有目标页条目先整体下移
                               shift = sortDragItemHeight;
                               // 被拖拽条目越过的条目（从 pageStart 到 toIndex-1）再逐个上移
-                              // 目标页只有1个条目时，让它上移达到交换效果；多个条目时回位
+                              // 目标页只有1个条目时，保持下移不回位，达到交换效果；多个条目时回位
                               if (childIndex >= pageStart && childIndex < toIndex) {
-                                  if (targetPageCount == 1) {
-                                      shift = -sortDragItemHeight;
-                                  } else {
-                                      shift = 0f; // 下移后再上移，等于原位
-                                  }
+                                  shift = 0f; // 下移后再上移，等于原位
                               }
                           }
                       } else if (isFloating && !sortCrossPagePending) {
