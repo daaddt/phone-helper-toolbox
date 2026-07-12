@@ -48,7 +48,6 @@ jobs:
         with:
           gradle-version: '8.10.2'
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
-
       - name: Generate project files
         run: |
           cat << 'FILEEOF' > .gitignore
@@ -62,23 +61,23 @@ jobs:
           *.apk
           *.aab
           
+          
           FILEEOF
-
           cat << 'FILEEOF' > build.gradle
           plugins {
               id "com.android.application" version "8.5.2" apply false
           }
           
+          
           FILEEOF
-
           cat << 'FILEEOF' > gradle.properties
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           android.useAndroidX=true
           android.nonTransitiveRClass=true
           android.suppressUnsupportedCompileSdk=35
           
+          
           FILEEOF
-
           cat << 'FILEEOF' > settings.gradle
           pluginManagement {
               repositories { google(); mavenCentral(); gradlePluginPortal() }
@@ -90,9 +89,8 @@ jobs:
           rootProject.name = "PhoneHelperToolbox"
           include ":app"
           
+          
           FILEEOF
-
-          mkdir -p app
           cat << 'FILEEOF' > app/build.gradle
           plugins {
               id "com.android.application"
@@ -116,8 +114,8 @@ jobs:
               }
           }
           
+          
           FILEEOF
-
           mkdir -p app/src/main
           cat << 'FILEEOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -194,8 +192,8 @@ jobs:
               </application>
           </manifest>
           
+          
           FILEEOF
-
           mkdir -p app/src/main/java/com/trae/phonehelper
           cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/AlarmReceiver.java
           package com.trae.phonehelper;
@@ -213,99 +211,150 @@ jobs:
           
           public class AlarmReceiver extends BroadcastReceiver {
               private static final String PREF = "phone_helper_pref";
+              private static final String KEY_SYSTEM_ALARMS = "systemAlarms";
+              private static final String ACTION_ALARM_PREFIX = "com.trae.phonehelper.ALARM_";
+              private static final String EXTRA_ALARM_ID = "alarmId";
+              private static final String EXTRA_LABEL = "label";
+              private static final String EXTRA_TONE_URI = "toneUri";
+              private static final String DEFAULT_LABEL = "闹钟";
           
               @Override
               public void onReceive(Context context, Intent intent) {
-                  int alarmId = intent.getIntExtra("alarmId", 0);
-                  JSONObject alarm = findAlarm(context, alarmId);
-                  String label = alarm != null ? alarm.optString("label", "闹钟") : "闹钟";
+                  int alarmId = intent.getIntExtra(EXTRA_ALARM_ID, 0);
+                  JSONObject alarm = findAlarmById(context, alarmId);
+                  String label = alarm != null ? alarm.optString("label", DEFAULT_LABEL) : DEFAULT_LABEL;
                   String toneUri = alarm != null ? alarm.optString("toneUri", "") : "";
           
                   scheduleNextAlarm(context, alarmId, alarm);
           
-                  Intent svc = new Intent(context, AlarmSoundService.class);
-                  svc.putExtra("alarmId", alarmId);
-                  svc.putExtra("label", label);
-                  svc.putExtra("toneUri", toneUri);
-                  try { context.startForegroundService(svc); } catch (Exception e) {}
-          
-                  Intent ring = new Intent(context, AlarmRingActivity.class);
-                  ring.putExtra("alarmId", alarmId);
-                  ring.putExtra("label", label);
-                  ring.putExtra("toneUri", toneUri);
-                  ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-                  try { context.startActivity(ring); } catch (Exception e) {}
+                  startAlarmSoundService(context, alarmId, label, toneUri);
+                  startAlarmRingActivity(context, alarmId, label, toneUri);
               }
           
-              private JSONObject findAlarm(Context context, int alarmId) {
-                  try {
-                      SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
-                      JSONArray alarms = new JSONArray(pref.getString("systemAlarms", "[]"));
-                      for (int i = 0; i < alarms.length(); i++) {
-                          JSONObject a = alarms.getJSONObject(i);
-                          if (a.optInt("id", 0) == alarmId) return a;
+              private JSONObject findAlarmById(Context context, int alarmId) {
+                  SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                  JSONArray alarms = loadAlarms(pref);
+                  for (int i = 0; i < alarms.length(); i++) {
+                      JSONObject alarm = alarms.optJSONObject(i);
+                      if (alarm != null && alarm.optInt("id", 0) == alarmId) {
+                          return alarm;
                       }
-                  } catch (Exception ignored) {}
+                  }
                   return null;
               }
           
               private void scheduleNextAlarm(Context context, int alarmId, JSONObject alarm) {
                   if (alarm == null) return;
-                  try {
-                      SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
-                      JSONArray alarms = new JSONArray(pref.getString("systemAlarms", "[]"));
-                      for (int i = 0; i < alarms.length(); i++) {
-                          JSONObject a = alarms.getJSONObject(i);
-                          if (a.optInt("id", 0) != alarmId) continue;
-                          String repeatDays = a.optString("repeatDays", "");
-                          if (a.optBoolean("repeatDaily", false) || !repeatDays.isEmpty()) {
-                              long nextAt = AlarmUtils.nextAlarmTime(a.optInt("hour", 7), a.optInt("minute", 0), repeatDays);
+          
+                  SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                  JSONArray alarms = loadAlarms(pref);
+          
+                  for (int i = 0; i < alarms.length(); i++) {
+                      JSONObject a = alarms.optJSONObject(i);
+                      if (a == null || a.optInt("id", 0) != alarmId) continue;
+          
+                      String repeatDays = a.optString("repeatDays", "");
+                      boolean hasRepeat = a.optBoolean("repeatDaily", false) || !repeatDays.isEmpty();
+          
+                      try {
+                          if (hasRepeat) {
+                              long nextAt = AlarmUtils.nextAlarmTime(
+                                  a.optInt("hour", 7),
+                                  a.optInt("minute", 0),
+                                  repeatDays
+                              );
                               a.put("nextAt", nextAt);
                               alarms.put(i, a);
-                              pref.edit().putString("systemAlarms", alarms.toString()).apply();
+                              saveAlarms(pref, alarms);
                               scheduleExactAlarm(context, a);
                           } else {
                               a.put("enabled", false);
                               alarms.put(i, a);
-                              pref.edit().putString("systemAlarms", alarms.toString()).apply();
+                              saveAlarms(pref, alarms);
                           }
-                          break;
+                      } catch (Exception e) {
+                          e.printStackTrace();
                       }
-                  } catch (Exception ignored) {}
+                      break;
+                  }
+              }
+          
+              private void startAlarmSoundService(Context context, int alarmId, String label, String toneUri) {
+                  Intent svc = new Intent(context, AlarmSoundService.class);
+                  svc.putExtra(EXTRA_ALARM_ID, alarmId);
+                  svc.putExtra(EXTRA_LABEL, label);
+                  svc.putExtra(EXTRA_TONE_URI, toneUri);
+                  try {
+                      context.startForegroundService(svc);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+          
+              private void startAlarmRingActivity(Context context, int alarmId, String label, String toneUri) {
+                  Intent ring = new Intent(context, AlarmRingActivity.class);
+                  ring.putExtra(EXTRA_ALARM_ID, alarmId);
+                  ring.putExtra(EXTRA_LABEL, label);
+                  ring.putExtra(EXTRA_TONE_URI, toneUri);
+                  ring.addFlags(
+                      Intent.FLAG_ACTIVITY_NEW_TASK
+                      | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                      | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                      | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                  );
+                  try {
+                      context.startActivity(ring);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
               }
           
               public static void scheduleExactAlarm(Context context, JSONObject alarm) {
-                  try {
-                      AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-                      if (am == null) return;
-                      int id = alarm.optInt("id", 0);
-                      long nextAt = alarm.optLong("nextAt", 0);
-                      if (id == 0 || nextAt == 0) return;
+                  AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                  if (am == null) return;
           
-                      Intent intent = new Intent(context, AlarmReceiver.class);
-                      intent.setAction("com.trae.phonehelper.ALARM_" + id);
-                      intent.putExtra("alarmId", id);
-                      PendingIntent pi = PendingIntent.getBroadcast(
-                          context, id, intent,
-                          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-                      );
+                  int id = alarm.optInt("id", 0);
+                  long nextAt = alarm.optLong("nextAt", 0);
+                  if (id == 0 || nextAt == 0) return;
           
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                          if (am.canScheduleExactAlarms()) {
-                              am.setAlarmClock(new AlarmManager.AlarmClockInfo(nextAt, pi), pi);
-                          } else {
-                              am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextAt, pi);
-                          }
-                      } else {
+                  Intent intent = new Intent(context, AlarmReceiver.class);
+                  intent.setAction(ACTION_ALARM_PREFIX + id);
+                  intent.putExtra(EXTRA_ALARM_ID, id);
+          
+                  int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+                  PendingIntent pi = PendingIntent.getBroadcast(context, id, intent, flags);
+          
+                  setAlarm(am, nextAt, pi);
+              }
+          
+              private static void setAlarm(AlarmManager am, long nextAt, PendingIntent pi) {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                      if (am.canScheduleExactAlarms()) {
                           am.setAlarmClock(new AlarmManager.AlarmClockInfo(nextAt, pi), pi);
+                      } else {
+                          am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextAt, pi);
                       }
-                  } catch (Exception ignored) {}
+                  } else {
+                      am.setAlarmClock(new AlarmManager.AlarmClockInfo(nextAt, pi), pi);
+                  }
+              }
+          
+              private static JSONArray loadAlarms(SharedPreferences pref) {
+                  try {
+                      return new JSONArray(pref.getString(KEY_SYSTEM_ALARMS, "[]"));
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                      return new JSONArray();
+                  }
+              }
+          
+              private static void saveAlarms(SharedPreferences pref, JSONArray alarms) {
+                  pref.edit().putString(KEY_SYSTEM_ALARMS, alarms.toString()).apply();
               }
           }
           
+          
           FILEEOF
-
-          mkdir -p app/src/main/java/com/trae/phonehelper
           cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/AlarmRingActivity.java
           package com.trae.phonehelper;
           
@@ -320,6 +369,7 @@ jobs:
           import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
           import android.os.Handler;
+          import android.os.Looper;
           import android.view.Gravity;
           import android.view.WindowManager;
           import android.widget.Button;
@@ -327,12 +377,37 @@ jobs:
           import android.widget.TextView;
           
           public class AlarmRingActivity extends Activity {
-              private final Handler handler = new Handler();
+              private static final String EXTRA_ALARM_ID = "alarmId";
+              private static final String EXTRA_LABEL = "label";
+              private static final String ACTION_ALARM_SNOOZE_PREFIX = "com.trae.phonehelper.ALARM_SNOOZE_";
+              private static final String DEFAULT_LABEL = "闹钟";
+              private static final String TITLE_TEXT = "闹钟响了";
+              private static final String SNOOZE_TEXT = "延迟 10 分钟";
+              private static final String DISMISS_TEXT = "关闭闹钟";
+              private static final long AUTO_DISMISS_DELAY_MS = 180000L;
+              private static final long SNOOZE_DELAY_MS = 10 * 60 * 1000L;
+              private static final int SNOOZE_REQUEST_CODE_OFFSET = 900000;
+          
+              private final Handler handler = new Handler(Looper.getMainLooper());
               private int alarmId = 1;
           
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+                  setupWindowFlags();
+                  setupKeyguard();
+          
+                  alarmId = getIntent().getIntExtra(EXTRA_ALARM_ID, 1);
+                  String label = getIntent().getStringExtra(EXTRA_LABEL);
+                  if (label == null || label.trim().isEmpty()) {
+                      label = DEFAULT_LABEL;
+                  }
+          
+                  setContentView(buildRootLayout(label));
+                  scheduleAutoDismiss();
+              }
+          
+              private void setupWindowFlags() {
                   getWindow().addFlags(
                       WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                       | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
@@ -341,64 +416,107 @@ jobs:
                       | WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
                   );
                   if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-                      try { setShowWhenLocked(true); setTurnScreenOn(true); } catch (Exception ignored) {}
+                      try {
+                          setShowWhenLocked(true);
+                          setTurnScreenOn(true);
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
                   }
+              }
+          
+              private void setupKeyguard() {
                   if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                       try {
                           android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-                          if (km != null) km.requestDismissKeyguard(this, null);
-                      } catch (Exception ignored) {}
+                          if (km != null) {
+                              km.requestDismissKeyguard(this, null);
+                          }
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
                   }
+              }
           
-                  alarmId = getIntent().getIntExtra("alarmId", 1);
-                  String label = getIntent().getStringExtra("label");
-                  if (label == null || label.trim().isEmpty()) label = "\u95f9\u949f";
-          
+              private LinearLayout buildRootLayout(String label) {
                   LinearLayout root = new LinearLayout(this);
                   root.setOrientation(LinearLayout.VERTICAL);
                   root.setGravity(Gravity.CENTER);
                   root.setPadding(48, 80, 48, 80);
                   root.setBackgroundColor(Color.rgb(7, 17, 31));
           
+                  root.addView(buildTitleTextView());
+                  root.addView(buildMessageTextView(label));
+                  root.addView(buildActionRow());
+          
+                  return root;
+              }
+          
+              private TextView buildTitleTextView() {
                   TextView title = new TextView(this);
-                  title.setText("\u95f9\u949f\u54cd\u4e86");
+                  title.setText(TITLE_TEXT);
                   title.setTextSize(40);
                   title.setTextColor(Color.WHITE);
                   title.setTypeface(Typeface.DEFAULT_BOLD);
                   title.setGravity(Gravity.CENTER);
-                  root.addView(title);
+                  return title;
+              }
           
+              private TextView buildMessageTextView(String label) {
                   TextView message = new TextView(this);
                   message.setText(label);
                   message.setTextSize(26);
                   message.setTextColor(Color.rgb(125, 211, 252));
                   message.setGravity(Gravity.CENTER);
                   message.setPadding(0, 32, 0, 48);
-                  root.addView(message);
+                  return message;
+              }
           
+              private LinearLayout buildActionRow() {
                   LinearLayout actionRow = new LinearLayout(this);
                   actionRow.setOrientation(LinearLayout.HORIZONTAL);
                   actionRow.setGravity(Gravity.CENTER);
           
+                  Button snooze = buildSnoozeButton();
+                  Button dismiss = buildDismissButton();
+          
+                  LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  leftParams.setMargins(0, 0, 10, 0);
+                  LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  rightParams.setMargins(10, 0, 0, 0);
+          
+                  actionRow.addView(snooze, leftParams);
+                  actionRow.addView(dismiss, rightParams);
+          
+                  return actionRow;
+              }
+          
+              private Button buildSnoozeButton() {
                   Button snooze = new Button(this);
-                  snooze.setText("延迟 10 分钟");
+                  snooze.setText(SNOOZE_TEXT);
                   snooze.setTextSize(18);
                   snooze.setAllCaps(false);
                   snooze.setTextColor(Color.WHITE);
-                  GradientDrawable snoozeBg = new GradientDrawable(
+          
+                  GradientDrawable bg = new GradientDrawable(
                       GradientDrawable.Orientation.LEFT_RIGHT,
                       new int[]{Color.rgb(99, 102, 241), Color.rgb(14, 165, 233)}
                   );
-                  snoozeBg.setCornerRadius(28);
-                  snooze.setBackground(snoozeBg);
+                  bg.setCornerRadius(28);
+                  snooze.setBackground(bg);
                   snooze.setPadding(24, 18, 24, 18);
                   snooze.setOnClickListener(v -> snoozeAlarm());
           
+                  return snooze;
+              }
+          
+              private Button buildDismissButton() {
                   Button dismiss = new Button(this);
-                  dismiss.setText("\u5173\u95ed\u95f9\u949f");
+                  dismiss.setText(DISMISS_TEXT);
                   dismiss.setTextSize(20);
                   dismiss.setAllCaps(false);
                   dismiss.setTextColor(Color.WHITE);
+          
                   GradientDrawable bg = new GradientDrawable(
                       GradientDrawable.Orientation.LEFT_RIGHT,
                       new int[]{Color.rgb(14, 165, 233), Color.rgb(16, 185, 129)}
@@ -407,44 +525,71 @@ jobs:
                   dismiss.setBackground(bg);
                   dismiss.setPadding(32, 20, 32, 20);
                   dismiss.setOnClickListener(v -> dismissAlarm());
-                  LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                  left.setMargins(0, 0, 10, 0);
-                  LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                  right.setMargins(10, 0, 0, 0);
-                  actionRow.addView(snooze, left);
-                  actionRow.addView(dismiss, right);
-                  root.addView(actionRow);
           
-                  setContentView(root);
-                  handler.postDelayed(this::dismissAlarm, 180000);
+                  return dismiss;
+              }
+          
+              private void scheduleAutoDismiss() {
+                  handler.postDelayed(this::dismissAlarm, AUTO_DISMISS_DELAY_MS);
               }
           
               private void snoozeAlarm() {
+                  AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                  if (am == null) {
+                      dismissAlarm();
+                      return;
+                  }
+          
                   try {
-                      AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
                       Intent intent = new Intent(this, AlarmReceiver.class);
-                      intent.setAction("com.trae.phonehelper.ALARM_SNOOZE_" + alarmId);
-                      intent.putExtra("alarmId", alarmId);
-                      PendingIntent pi = PendingIntent.getBroadcast(this, alarmId + 900000, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                      long at = System.currentTimeMillis() + 10 * 60 * 1000L;
-                      if (am != null) {
-                          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
-                              am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
-                          } else {
-                              am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, pi), pi);
-                          }
+                      intent.setAction(ACTION_ALARM_SNOOZE_PREFIX + alarmId);
+                      intent.putExtra(EXTRA_ALARM_ID, alarmId);
+          
+                      int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+                      PendingIntent pi = PendingIntent.getBroadcast(
+                          this,
+                          alarmId + SNOOZE_REQUEST_CODE_OFFSET,
+                          intent,
+                          flags
+                      );
+          
+                      long at = System.currentTimeMillis() + SNOOZE_DELAY_MS;
+          
+                      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
+                          am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+                      } else {
+                          am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, pi), pi);
                       }
-                  } catch (Exception ignored) {}
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+          
                   dismissAlarm();
               }
           
               private void dismissAlarm() {
-                  try { stopService(new Intent(this, AlarmSoundService.class)); } catch (Exception ignored) {}
+                  stopAlarmSoundService();
+                  cancelNotification();
+                  finish();
+              }
+          
+              private void stopAlarmSoundService() {
+                  try {
+                      stopService(new Intent(this, AlarmSoundService.class));
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+          
+              private void cancelNotification() {
                   try {
                       NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                      if (manager != null) manager.cancel(alarmId);
-                  } catch (Exception ignored) {}
-                  finish();
+                      if (manager != null) {
+                          manager.cancel(alarmId);
+                      }
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
               }
           
               @Override
@@ -454,9 +599,8 @@ jobs:
               }
           }
           
+          
           FILEEOF
-
-          mkdir -p app/src/main/java/com/trae/phonehelper
           cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/AlarmSoundService.java
           package com.trae.phonehelper;
           
@@ -478,58 +622,81 @@ jobs:
           
           public class AlarmSoundService extends Service {
               private static final String CHANNEL_ID = "phone_helper_alarm";
+              private static final String CHANNEL_NAME = "闹钟提醒";
+              private static final String CHANNEL_DESCRIPTION = "手机助手工具箱闹钟提醒";
+              private static final String EXTRA_ALARM_ID = "alarmId";
+              private static final String EXTRA_LABEL = "label";
+              private static final String EXTRA_TONE_URI = "toneUri";
+              private static final String DEFAULT_LABEL = "闹钟";
+              private static final String NOTIFICATION_TITLE = "闹钟响了";
+              private static final int WAKE_LOCK_TIMEOUT_MS = 60000;
+              private static final int NOTIFICATION_REQUEST_CODE_OFFSET = 200000;
+          
+              private static final long[] VIBRATE_PATTERN = {0, 900, 500, 900, 500, 900};
+              private static final int VIBRATE_REPEAT_INDEX = 0;
+          
               private MediaPlayer mediaPlayer;
               private Vibrator vibrator;
               private PowerManager.WakeLock wakeLock;
           
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
-                  int alarmId = intent != null ? intent.getIntExtra("alarmId", 1) : 1;
-                  String label = intent != null ? intent.getStringExtra("label") : "闹钟";
-                  String toneUri = intent != null ? intent.getStringExtra("toneUri") : "";
-                  if (label == null || label.trim().isEmpty()) label = "闹钟";
-                  if (alarmId < 1) alarmId = 1;
+                  int alarmId = extractAlarmId(intent);
+                  String label = extractLabel(intent);
+                  String toneUri = extractToneUri(intent);
           
                   startForeground(alarmId, buildNotification(alarmId, label));
-                  PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                  if (pm != null) {
-                      wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "PhoneHelper:AlarmWakeLock");
-                      wakeLock.acquire(60000);
-                  }
+                  acquireWakeLock();
                   startSound(toneUri);
                   startVibrate();
+          
                   return START_NOT_STICKY;
               }
           
-              private Notification buildNotification(int alarmId, String label) {
-                  NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                  if (manager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      NotificationChannel channel = new NotificationChannel(
-                          CHANNEL_ID, "闹钟提醒", NotificationManager.IMPORTANCE_HIGH);
-                      channel.setDescription("手机助手工具箱闹钟提醒");
-                      channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-                      channel.enableVibration(true);
-                      manager.createNotificationChannel(channel);
-                  }
+              private int extractAlarmId(Intent intent) {
+                  if (intent == null) return 1;
+                  int id = intent.getIntExtra(EXTRA_ALARM_ID, 1);
+                  return Math.max(1, id);
+              }
           
-                  Intent ring = new Intent(this, AlarmRingActivity.class);
-                  ring.putExtra("alarmId", alarmId);
-                  ring.putExtra("label", label);
-                  ring.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-                  PendingIntent pendingIntent = PendingIntent.getActivity(
-                      this, alarmId + 200000, ring,
-                      PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+              private String extractLabel(Intent intent) {
+                  if (intent == null) return DEFAULT_LABEL;
+                  String label = intent.getStringExtra(EXTRA_LABEL);
+                  return (label != null && !label.trim().isEmpty()) ? label : DEFAULT_LABEL;
+              }
+          
+              private String extractToneUri(Intent intent) {
+                  return intent != null ? intent.getStringExtra(EXTRA_TONE_URI) : "";
+              }
+          
+              private Notification buildNotification(int alarmId, String label) {
+                  createNotificationChannel();
+          
+                  Intent ringIntent = new Intent(this, AlarmRingActivity.class);
+                  ringIntent.putExtra(EXTRA_ALARM_ID, alarmId);
+                  ringIntent.putExtra(EXTRA_LABEL, label);
+                  ringIntent.addFlags(
+                      Intent.FLAG_ACTIVITY_NEW_TASK
+                      | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                      | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                      | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
                   );
           
-                  Notification.Builder builder;
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      builder = new Notification.Builder(this, CHANNEL_ID);
-                  } else {
-                      builder = new Notification.Builder(this);
-                  }
+                  int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+                  PendingIntent pendingIntent = PendingIntent.getActivity(
+                      this,
+                      alarmId + NOTIFICATION_REQUEST_CODE_OFFSET,
+                      ringIntent,
+                      flags
+                  );
+          
+                  Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                      ? new Notification.Builder(this, CHANNEL_ID)
+                      : new Notification.Builder(this);
+          
                   return builder
                       .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                      .setContentTitle("\u95f9\u949f\u54cd\u4e86")
+                      .setContentTitle(NOTIFICATION_TITLE)
                       .setContentText(label)
                       .setContentIntent(pendingIntent)
                       .setFullScreenIntent(pendingIntent, true)
@@ -541,73 +708,153 @@ jobs:
                       .build();
               }
           
+              private void createNotificationChannel() {
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+          
+                  NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (manager == null) return;
+          
+                  NotificationChannel channel = manager.getNotificationChannel(CHANNEL_ID);
+                  if (channel != null) return;
+          
+                  channel = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH);
+                  channel.setDescription(CHANNEL_DESCRIPTION);
+                  channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                  channel.enableVibration(true);
+                  manager.createNotificationChannel(channel);
+              }
+          
+              private void acquireWakeLock() {
+                  PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                  if (pm == null) return;
+          
+                  wakeLock = pm.newWakeLock(
+                      PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                      "PhoneHelper:AlarmWakeLock"
+                  );
+                  wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS);
+              }
+          
               private void startSound(String toneUri) {
+                  Uri uri = resolveToneUri(toneUri);
+                  if (uri == null) return;
+          
                   try {
-                      Uri uri;
-                      if (toneUri == null || toneUri.isEmpty()) {
-                          uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-                      } else {
-                          uri = Uri.parse(toneUri);
-                      }
-                      mediaPlayer = new MediaPlayer();
-                      mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
-                          .setUsage(AudioAttributes.USAGE_ALARM)
-                          .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                          .build());
-                      mediaPlayer.setDataSource(this, uri);
-                      mediaPlayer.setLooping(true);
-                      mediaPlayer.prepare();
+                      mediaPlayer = createMediaPlayer(uri);
                       mediaPlayer.start();
                   } catch (Exception firstError) {
+                      firstError.printStackTrace();
                       try {
-                          Uri fallback = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-                          mediaPlayer = new MediaPlayer();
-                          mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
-                              .setUsage(AudioAttributes.USAGE_ALARM)
-                              .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                              .build());
-                          mediaPlayer.setDataSource(this, fallback);
-                          mediaPlayer.setLooping(true);
-                          mediaPlayer.prepare();
-                          mediaPlayer.start();
-                      } catch (Exception ignored) {}
+                          Uri fallbackUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+                          if (fallbackUri != null) {
+                              mediaPlayer = createMediaPlayer(fallbackUri);
+                              mediaPlayer.start();
+                          }
+                      } catch (Exception fallbackError) {
+                          fallbackError.printStackTrace();
+                      }
                   }
               }
           
-              private void startVibrate() {
+              private Uri resolveToneUri(String toneUri) {
+                  if (toneUri == null || toneUri.isEmpty()) {
+                      return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+                  }
                   try {
-                      vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-                      if (vibrator != null && vibrator.hasVibrator()) {
-                          vibrator.vibrate(new long[]{0, 900, 500, 900, 500, 900}, 0);
+                      return Uri.parse(toneUri);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                      return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+                  }
+              }
+          
+              private MediaPlayer createMediaPlayer(Uri uri) throws Exception {
+                  MediaPlayer player = new MediaPlayer();
+                  player.setAudioAttributes(new AudioAttributes.Builder()
+                      .setUsage(AudioAttributes.USAGE_ALARM)
+                      .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                      .build());
+                  player.setDataSource(this, uri);
+                  player.setLooping(true);
+                  player.prepare();
+                  return player;
+              }
+          
+              private void startVibrate() {
+                  vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+                  if (vibrator != null && vibrator.hasVibrator()) {
+                      try {
+                          vibrator.vibrate(VIBRATE_PATTERN, VIBRATE_REPEAT_INDEX);
+                      } catch (Exception e) {
+                          e.printStackTrace();
                       }
-                  } catch (Exception ignored) {}
+                  }
               }
           
               @Override
               public void onDestroy() {
                   super.onDestroy();
-                  try { if (mediaPlayer != null) { mediaPlayer.stop(); mediaPlayer.release(); } } catch (Exception ignored) {}
-                  try { if (vibrator != null) vibrator.cancel(); } catch (Exception ignored) {}
-                  try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) {}
+                  releaseMediaPlayer();
+                  cancelVibrator();
+                  releaseWakeLock();
+              }
+          
+              private void releaseMediaPlayer() {
+                  if (mediaPlayer != null) {
+                      try {
+                          mediaPlayer.stop();
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                      try {
+                          mediaPlayer.release();
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                      mediaPlayer = null;
+                  }
+              }
+          
+              private void cancelVibrator() {
+                  if (vibrator != null) {
+                      try {
+                          vibrator.cancel();
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                      vibrator = null;
+                  }
+              }
+          
+              private void releaseWakeLock() {
+                  if (wakeLock != null && wakeLock.isHeld()) {
+                      try {
+                          wakeLock.release();
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                      wakeLock = null;
+                  }
               }
           
               @Override
-              public IBinder onBind(Intent intent) { return null; }
+              public IBinder onBind(Intent intent) {
+                  return null;
+              }
           }
           
+          
           FILEEOF
-
-          mkdir -p app/src/main/java/com/trae/phonehelper
           cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/AlarmUtils.java
           package com.trae.phonehelper;
-
+          
           import java.time.DayOfWeek;
           import java.time.LocalDate;
           import java.time.LocalDateTime;
           import java.time.LocalTime;
           import java.time.ZoneId;
           import java.time.ZonedDateTime;
-
+          
           public class AlarmUtils {
               /**
                * 统一的闹钟下次触发时间计算。
@@ -625,7 +872,7 @@ jobs:
                   LocalDateTime now = LocalDateTime.now(zone);
                   LocalDate today = now.toLocalDate();
                   LocalDateTime candidate = LocalDateTime.of(today, target);
-
+          
                   if (repeatDays != null && !repeatDays.trim().isEmpty()) {
                       // 有重复日期：从今天开始往后找 7 天内最近的匹配日
                       for (int d = 0; d <= 7; d++) {
@@ -640,7 +887,7 @@ jobs:
                           }
                       }
                   }
-
+          
                   // 不重复或没找到匹配日：如果今天的时间已过，推迟到明天
                   if (!candidate.isAfter(now)) {
                       candidate = candidate.plusDays(1);
@@ -648,9 +895,8 @@ jobs:
                   return ZonedDateTime.of(candidate, zone).toInstant().toEpochMilli();
               }
           }
+          
           FILEEOF
-
-          mkdir -p app/src/main/java/com/trae/phonehelper
           cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/BootReceiver.java
           package com.trae.phonehelper;
           
@@ -662,43 +908,84 @@ jobs:
           import org.json.JSONArray;
           import org.json.JSONObject;
           
+          import java.util.HashSet;
+          import java.util.Set;
+          
           public class BootReceiver extends BroadcastReceiver {
               private static final String PREF = "phone_helper_pref";
+              private static final String KEY_SYSTEM_ALARMS = "systemAlarms";
+          
+              private static final Set<String> TRIGGER_ACTIONS = new HashSet<>();
+              static {
+                  TRIGGER_ACTIONS.add("android.intent.action.BOOT_COMPLETED");
+                  TRIGGER_ACTIONS.add("android.intent.action.LOCKED_BOOT_COMPLETED");
+                  TRIGGER_ACTIONS.add("android.intent.action.MY_PACKAGE_REPLACED");
+                  TRIGGER_ACTIONS.add("android.intent.action.TIME_SET");
+                  TRIGGER_ACTIONS.add("android.intent.action.TIMEZONE_CHANGED");
+              }
           
               @Override
               public void onReceive(Context context, Intent intent) {
-                  if (intent == null) return;
-                  String action = intent.getAction();
-                  if (action == null) return;
-                  if (!action.equals("android.intent.action.BOOT_COMPLETED")
-                      && !action.equals("android.intent.action.LOCKED_BOOT_COMPLETED")
-                      && !action.equals("android.intent.action.MY_PACKAGE_REPLACED")
-                      && !action.equals("android.intent.action.TIME_SET")
-                      && !action.equals("android.intent.action.TIMEZONE_CHANGED")) return;
+                  if (!isValidTrigger(intent)) return;
+                  rescheduleAlarms(context);
+              }
           
-                  try {
-                      SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
-                      JSONArray alarms = new JSONArray(pref.getString("systemAlarms", "[]"));
-                      for (int i = 0; i < alarms.length(); i++) {
-                          JSONObject alarm = alarms.getJSONObject(i);
-                          if (alarm.optBoolean("enabled", false)) {
-                              long nextAt = alarm.optLong("nextAt", 0);
-                              if (nextAt <= System.currentTimeMillis()) {
-                                  nextAt = AlarmUtils.nextAlarmTime(alarm.optInt("hour", 7), alarm.optInt("minute", 0), alarm.optString("repeatDays", ""));
-                                  alarm.put("nextAt", nextAt);
-                              }
-                              AlarmReceiver.scheduleExactAlarm(context, alarm);
-                              alarms.put(i, alarm);
+              private boolean isValidTrigger(Intent intent) {
+                  if (intent == null) return false;
+                  String action = intent.getAction();
+                  return action != null && TRIGGER_ACTIONS.contains(action);
+              }
+          
+              private void rescheduleAlarms(Context context) {
+                  SharedPreferences pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                  JSONArray alarms = loadAlarms(pref);
+                  boolean changed = false;
+          
+                  for (int i = 0; i < alarms.length(); i++) {
+                      JSONObject alarm = alarms.optJSONObject(i);
+                      if (alarm == null || !alarm.optBoolean("enabled", false)) continue;
+          
+                      long nextAt = alarm.optLong("nextAt", 0);
+                      if (nextAt <= System.currentTimeMillis()) {
+                          try {
+                              nextAt = AlarmUtils.nextAlarmTime(
+                                  alarm.optInt("hour", 7),
+                                  alarm.optInt("minute", 0),
+                                  alarm.optString("repeatDays", "")
+                              );
+                              alarm.put("nextAt", nextAt);
+                              changed = true;
+                          } catch (Exception e) {
+                              e.printStackTrace();
+                              continue;
                           }
                       }
-                      pref.edit().putString("systemAlarms", alarms.toString()).apply();
-                  } catch (Exception ignored) {}
+          
+                      AlarmReceiver.scheduleExactAlarm(context, alarm);
+                      alarms.put(i, alarm);
+                  }
+          
+                  if (changed) {
+                      saveAlarms(pref, alarms);
+                  }
+              }
+          
+              private static JSONArray loadAlarms(SharedPreferences pref) {
+                  try {
+                      return new JSONArray(pref.getString(KEY_SYSTEM_ALARMS, "[]"));
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                      return new JSONArray();
+                  }
+              }
+          
+              private static void saveAlarms(SharedPreferences pref, JSONArray alarms) {
+                  pref.edit().putString(KEY_SYSTEM_ALARMS, alarms.toString()).apply();
               }
           }
           
+          
           FILEEOF
-
-          mkdir -p app/src/main/java/com/trae/phonehelper
           cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/MainActivity.java
           package com.trae.phonehelper;
           
@@ -722,6 +1009,7 @@ jobs:
           import android.os.Build;
           import android.os.Bundle;
           import android.os.Handler;
+          import android.os.Looper;
           import android.os.PowerManager;
           import android.os.SystemClock;
           import android.os.Vibrator;
@@ -773,8 +1061,42 @@ jobs:
               private static final int REQ_BATTERY = 9003;
               private static final int REQ_OVERLAY = 9004;
               private static final int PAGE_SIZE = 8;
+          
+              private static final String KEY_SYSTEM_ALARMS = "systemAlarms";
+              private static final String KEY_TEXTS = "texts";
+              private static final String KEY_LINKS = "links";
+              private static final String KEY_AI_MESSAGES = "aiMessages";
+              private static final String KEY_AI_API_URL = "aiApiUrl";
+              private static final String KEY_AI_API_KEY = "aiApiKey";
+              private static final String KEY_AI_MODEL = "aiModel";
+              private static final String KEY_AI_SYSTEM_PROMPT = "aiSystemPrompt";
+              private static final String KEY_AI_CONTEXT_ROUNDS = "aiContextRounds";
+              private static final String KEY_LAST_ALARM_TONE_URI = "lastAlarmToneUri";
+              private static final String KEY_SPLIT_INPUT_TEXT = "splitInputText";
+              private static final String KEY_SPLIT_INPUT_SIZE = "splitInputSize";
+              private static final String KEY_POMO_LOOP = "pomoLoop";
+              private static final String KEY_POMO_FOCUS_MIN = "pomoFocusMin";
+              private static final String KEY_POMO_REST_MIN = "pomoRestMin";
+              private static final String KEY_POMO_DAY = "pomoDay";
+              private static final String KEY_POMO_COUNT = "pomoCount";
+              private static final String KEY_TIMER_MODE = "timerMode";
+              private static final String KEY_DEFAULTS_READY = "defaultsReady";
+              private static final String KEY_DEFAULTS_V17_READY = "defaultsV17Ready";
+              private static final String KEY_DEFAULTS_V171_READY = "defaultsV171Ready";
+          
+              private static final int COLOR_PRIMARY = Color.rgb(14, 165, 233);
+              private static final int COLOR_SUCCESS = Color.rgb(16, 185, 129);
+              private static final int COLOR_DANGER = Color.rgb(244, 63, 94);
+              private static final int COLOR_WARNING = Color.rgb(251, 191, 36);
+              private static final int COLOR_INFO = Color.rgb(125, 211, 252);
+              private static final int COLOR_CARD_BG = Color.rgb(17, 24, 39);
+              private static final int COLOR_CARD_STROKE = Color.rgb(39, 52, 73);
+              private static final int COLOR_SURFACE = Color.rgb(10, 15, 25);
+              private static final int COLOR_TEXT_PRIMARY = Color.WHITE;
+              private static final int COLOR_TEXT_SECONDARY = Color.rgb(148, 163, 184);
+              private static final int COLOR_TEXT_TERTIARY = Color.rgb(156, 163, 175);
               private SharedPreferences pref;
-              private final Handler handler = new Handler();
+              private final Handler handler = new Handler(Looper.getMainLooper());
           
               private LinearLayout homePage, splitPage, textPage, linkPage, sortPage, timerPage, pomoPage, alarmPage, aiPage, aiSettingsPage, backupPage;
               private LinearLayout splitResultList, savedTextList, linkList, sortList, alarmList, aiMessageList, aiInputArea;
@@ -980,7 +1302,7 @@ jobs:
                   if (longTextInput != null) {
                       String text = longTextInput.getText().toString();
                       String size = splitSizeInput != null ? splitSizeInput.getText().toString() : "3000";
-                      pref.edit().putString("splitInputText", text).putString("splitInputSize", size).apply();
+                      pref.edit().putString(KEY_SPLIT_INPUT_TEXT, text).putString(KEY_SPLIT_INPUT_SIZE, size).apply();
                   }
               }
           
@@ -1047,10 +1369,10 @@ jobs:
           
                   setContentView(rootFrame);
                   installKeyboardGuard();
-                  // 恢复分段复制输入内容
-                  String savedSplitText = pref.getString("splitInputText", "");
-                  if (!savedSplitText.isEmpty() && longTextInput != null) {
-                      longTextInput.setText(savedSplitText);
+                  // 恢复分段复制输入内容（延迟到首帧渲染后，避免大量文本阻塞启动）
+                  final String savedSplitText = pref.getString(KEY_SPLIT_INPUT_TEXT, "");
+                  if (!savedSplitText.isEmpty()) {
+                      rootFrame.post(() -> { if (longTextInput != null) longTextInput.setText(savedSplitText); });
                   }
                   showPage("home");
               }
@@ -1101,7 +1423,7 @@ jobs:
                   longTextInput.setGravity(Gravity.TOP);
                   splitPage.addView(longTextInput);
                   splitSizeInput = inputBox("\u6bcf\u6bb5\u6700\u5927\u5b57\u6570\uff0c\u9ed8\u8ba4 3000");
-                  splitSizeInput.setText(pref.getString("splitInputSize", "3000"));
+                  splitSizeInput.setText(pref.getString(KEY_SPLIT_INPUT_SIZE, "3000"));
                   splitSizeInput.setSingleLine(true);
                   splitPage.addView(labelWrap("\u5206\u6bb5\u957f\u5ea6", splitSizeInput));
                   LinearLayout actions = row();
@@ -1270,7 +1592,7 @@ jobs:
                   reset.setOnClickListener(v -> resetPomo());
                   done.setOnClickListener(v -> finishOnePomo());
                   pomoLoopCheck.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                      pref.edit().putBoolean("pomoLoop", isChecked).apply();
+                      pref.edit().putBoolean(KEY_POMO_LOOP, isChecked).apply();
                       showStatus(isChecked ? "\u4f11\u606f\u7ed3\u675f\u540e\u4f1a\u81ea\u52a8\u8fdb\u5165\u4e0b\u4e00\u8f6e\u4e13\u6ce8" : "\u4f11\u606f\u7ed3\u675f\u540e\u4f1a\u6682\u505c\uff0c\u7b49\u5f85\u624b\u52a8\u5f00\u59cb");
                   });
                   updatePomoDisplay();
@@ -1410,7 +1732,7 @@ jobs:
                       if (finalEditIndex >= 0) {
                           updateAlarm(finalEditIndex, hour, minute, label, repeatDays);
                       } else {
-                          addAlarm(hour, minute, label, repeatDays, pref.getString("lastAlarmToneUri", ""));
+                          addAlarm(hour, minute, label, repeatDays, pref.getString(KEY_LAST_ALARM_TONE_URI, ""));
                       }
                   });
                   b.setNegativeButton("\u53d6\u6d88", null);
@@ -1431,7 +1753,7 @@ jobs:
               private String allWeekDays() { return "0,1,2,3,4,5,6"; }
           
               private String lastAlarmToneName() {
-                  String uri = pref.getString("lastAlarmToneUri", "");
+                  String uri = pref.getString(KEY_LAST_ALARM_TONE_URI, "");
                   return uri.isEmpty() ? "系统默认闹钟" : ringtoneTitleOf(uri);
               }
           
@@ -2022,25 +2344,25 @@ jobs:
                   aiSettingsPage.addView(sectionTitle("AI\u8bbe\u7f6e"));
                   aiSettingsPage.addView(infoCard("API Key \u53ea\u4fdd\u5b58\u5728\u672c\u673a\uff0c\u4e0d\u4f1a\u5199\u8fdb GitHub\u3002\u63a8\u8350\u6a21\u578b\u540d\u4fdd\u6301 openrouter/free\u3002"));
                   apiUrlInput = inputBox("API \u5730\u5740");
-                  apiUrlInput.setText(pref.getString("aiApiUrl", "https://openrouter.ai/api/v1/chat/completions"));
+                  apiUrlInput.setText(pref.getString(KEY_AI_API_URL, "https://openrouter.ai/api/v1/chat/completions"));
                   aiSettingsPage.addView(labelWrap("API \u5730\u5740", apiUrlInput));
                   apiKeyInput = inputBox("API Key");
                   apiKeyInput.setSingleLine(true);
                   apiKeyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-                  apiKeyInput.setText(pref.getString("aiApiKey", ""));
+                  apiKeyInput.setText(pref.getString(KEY_AI_API_KEY, ""));
                   aiSettingsPage.addView(labelWrap("API Key", apiKeyInput));
                   modelInput = inputBox("\u6a21\u578b\u540d");
                   modelInput.setSingleLine(true);
-                  modelInput.setText(pref.getString("aiModel", "openrouter/free"));
+                  modelInput.setText(pref.getString(KEY_AI_MODEL, "openrouter/free"));
                   aiSettingsPage.addView(labelWrap("\u6a21\u578b\u540d", modelInput));
                   systemPromptInput = inputBox("\u667a\u80fd\u4f53\u8bbe\u5b9a");
                   systemPromptInput.setMinLines(4);
-                  systemPromptInput.setText(pref.getString("aiSystemPrompt", "\u4f60\u662f\u4e00\u4e2a\u8010\u5fc3\u3001\u6709\u903b\u8f91\u3001\u8bf4\u4e2d\u6587\u7684\u667a\u80fd\u52a9\u624b\u3002\u56de\u7b54\u8981\u6e05\u6670\u3001\u5b9e\u7528\u3001\u4e0d\u8fc7\u5ea6\u541b\u541b\u3002"));
+                  systemPromptInput.setText(pref.getString(KEY_AI_SYSTEM_PROMPT, "\u4f60\u662f\u4e00\u4e2a\u8010\u5fc3\u3001\u6709\u903b\u8f91\u3001\u8bf4\u4e2d\u6587\u7684\u667a\u80fd\u52a9\u624b\u3002\u56de\u7b54\u8981\u6e05\u6670\u3001\u5b9e\u7528\u3001\u4e0d\u8fc7\u5ea6\u541b\u541b\u3002"));
                   aiSettingsPage.addView(labelWrap("\u667a\u80fd\u4f53\u8bbe\u5b9a", systemPromptInput));
                   contextRoundInput = inputBox("\u4e0a\u4e0b\u6587\u8f6e\u6570");
                   contextRoundInput.setSingleLine(true);
                   contextRoundInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-                  contextRoundInput.setText(String.valueOf(pref.getInt("aiContextRounds", 8)));
+                  contextRoundInput.setText(String.valueOf(pref.getInt(KEY_AI_CONTEXT_ROUNDS, 8)));
                   aiSettingsPage.addView(labelWrap("\u4e0a\u4e0b\u6587\u8f6e\u6570\uff081-32\uff0c\u8d8a\u5c0f\u54cd\u5e94\u8d8a\u5feb\uff09", contextRoundInput));
                   LinearLayout actions = row();
                   Button save = button("\u4fdd\u5b58\u8bbe\u7f6e");
@@ -2626,11 +2948,17 @@ jobs:
               private void applyPomoSettings() {
                   int focusMin = Math.max(1, Math.min(180, parseInt(pomoFocusInput.getText().toString(), 25)));
                   int restMin = Math.max(1, Math.min(60, parseInt(pomoRestInput.getText().toString(), 5)));
-                  pref.edit().putInt("pomoFocusMin", focusMin).putInt("pomoRestMin", restMin)
-                        .putBoolean("pomoLoop", pomoLoopCheck == null || pomoLoopCheck.isChecked()).apply();
-                  pomoFocus = true; pomoRunning = false;
-                  pomoDuration = focusMin * 60 * 1000L; pomoElapsed = 0;
-                  updatePomoDisplay(); showStatus("\u756a\u8304\u949f\u8bbe\u7f6e\u5df2\u5e94\u7528");
+                  pref.edit()
+                      .putInt(KEY_POMO_FOCUS_MIN, focusMin)
+                      .putInt(KEY_POMO_REST_MIN, restMin)
+                      .putBoolean(KEY_POMO_LOOP, pomoLoopCheck == null || pomoLoopCheck.isChecked())
+                      .apply();
+                  pomoFocus = true;
+                  pomoRunning = false;
+                  pomoDuration = focusMin * 60 * 1000L;
+                  pomoElapsed = 0;
+                  updatePomoDisplay();
+                  showStatus("\u756a\u8304\u949f\u8bbe\u7f6e\u5df2\u5e94\u7528");
               }
           
               private void togglePomo() {
@@ -2680,20 +3008,20 @@ jobs:
           
               private void increasePomoCount() {
                   String today = today();
-                  String savedDay = pref.getString("pomoDay", "");
-                  int count = today.equals(savedDay) ? pref.getInt("pomoCount", 0) : 0;
-                  pref.edit().putString("pomoDay", today).putInt("pomoCount", count + 1).apply();
+                  String savedDay = pref.getString(KEY_POMO_DAY, "");
+                  int count = today.equals(savedDay) ? pref.getInt(KEY_POMO_COUNT, 0) : 0;
+                  pref.edit().putString(KEY_POMO_DAY, today).putInt(KEY_POMO_COUNT, count + 1).apply();
               }
           
               private int getTodayPomoCount() {
                   String today = today();
-                  return today.equals(pref.getString("pomoDay", "")) ? pref.getInt("pomoCount", 0) : 0;
+                  return today.equals(pref.getString(KEY_POMO_DAY, "")) ? pref.getInt(KEY_POMO_COUNT, 0) : 0;
               }
           
               private String today() { return new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date()); }
           
               private void restoreTimerState() {
-                  timerMode = pref.getString("timerMode", "stopwatch");
+                  timerMode = pref.getString(KEY_TIMER_MODE, "stopwatch");
                   stopwatchElapsed = pref.getLong("stopwatchElapsed", 0);
                   stopwatchRunning = pref.getBoolean("stopwatchRunning", false);
                   countdownDuration = pref.getLong("countdownDuration", 5 * 60 * 1000L);
@@ -2710,7 +3038,7 @@ jobs:
               }
           
               private void saveTimerState() {
-                  pref.edit().putString("timerMode", timerMode)
+                  pref.edit().putString(KEY_TIMER_MODE, timerMode)
                         .putLong("stopwatchElapsed", getStopwatchElapsed()).putBoolean("stopwatchRunning", stopwatchRunning)
                         .putLong("countdownDuration", countdownDuration).putLong("countdownElapsed", getCountdownElapsed())
                         .putBoolean("countdownRunning", countdownRunning)
@@ -2718,8 +3046,8 @@ jobs:
               }
           
               private void restorePomoState() {
-                  int focusMin = pref.getInt("pomoFocusMin", 25);
-                  int restMin = pref.getInt("pomoRestMin", 5);
+                  int focusMin = pref.getInt(KEY_POMO_FOCUS_MIN, 25);
+                  int restMin = pref.getInt(KEY_POMO_REST_MIN, 5);
                   pomoFocus = pref.getBoolean("pomoFocus", true);
                   pomoDuration = pref.getLong("pomoDuration", (pomoFocus ? focusMin : restMin) * 60 * 1000L);
                   pomoElapsed = pref.getLong("pomoElapsed", 0);
@@ -2754,14 +3082,22 @@ jobs:
               private void sendAiMessage() {
                   String value = aiInput.getText().toString().trim();
                   if (value.isEmpty() || aiSending) return;
-                  if (pref.getString("aiApiKey", "").trim().isEmpty()) { showStatus("\u8bf7\u5148\u5728 AI\u8bbe\u7f6e \u91cc\u586b\u5199 API Key"); showPage("aiSettings"); return; }
+                  if (pref.getString(KEY_AI_API_KEY, "").trim().isEmpty()) {
+                      showStatus("\u8bf7\u5148\u5728 AI\u8bbe\u7f6e \u91cc\u586b\u5199 API Key");
+                      showPage("aiSettings");
+                      return;
+                  }
                   appendAiMessage("user", value);
                   aiInput.setText(""); hideKeyboard();
                   callAi(false);
               }
           
               private void testAiConnection() {
-                  if (pref.getString("aiApiKey", "").trim().isEmpty()) { showStatus("\u8bf7\u5148\u586b\u5199 API Key"); showPage("aiSettings"); return; }
+                  if (pref.getString(KEY_AI_API_KEY, "").trim().isEmpty()) {
+                      showStatus("\u8bf7\u5148\u586b\u5199 API Key");
+                      showPage("aiSettings");
+                      return;
+                  }
                   if (aiSending) { showStatus("AI \u56de\u590d\u4e2d\uff0c\u8bf7\u7b49\u5f85\u5b8c\u6210\u540e\u518d\u6d4b\u8bd5"); return; }
                   appendAiMessage("user", "\u8bf7\u7528\u4e00\u53e5\u8bdd\u56de\u590d\uff1a\u8fde\u63a5\u6d4b\u8bd5\u6210\u529f\u3002");
                   showPage("ai"); callAi(true);
@@ -2938,10 +3274,10 @@ jobs:
               }
           
               private String buildAiRequestBody() throws Exception {
-                  String apiUrl = pref.getString("aiApiUrl", "").trim();
-                  String apiKey = pref.getString("aiApiKey", "").trim();
-                  String model = pref.getString("aiModel", "openrouter/free").trim();
-                  String systemPrompt = pref.getString("aiSystemPrompt", "").trim();
+                  String apiUrl = pref.getString(KEY_AI_API_URL, "").trim();
+                  String apiKey = pref.getString(KEY_AI_API_KEY, "").trim();
+                  String model = pref.getString(KEY_AI_MODEL, "openrouter/free").trim();
+                  String systemPrompt = pref.getString(KEY_AI_SYSTEM_PROMPT, "").trim();
                   if (apiUrl.isEmpty()) throw new Exception("API \u5730\u5740\u4e3a\u7a7a");
                   if (apiKey.isEmpty()) throw new Exception("API Key \u4e3a\u7a7a");
                   if (model.isEmpty()) throw new Exception("\u6a21\u578b\u540d\u4e3a\u7a7a");
@@ -2950,11 +3286,14 @@ jobs:
                   JSONArray apiMessages = new JSONArray();
                   if (!systemPrompt.isEmpty()) {
                       JSONObject sys = new JSONObject();
-                      sys.put("role", "system"); sys.put("content", systemPrompt);
+                      sys.put("role", "system");
+                      sys.put("content", systemPrompt);
                       apiMessages.put(sys);
                   }
-                  int start = Math.max(0, aiMessages.length() - pref.getInt("aiContextRounds", 8));
-                  for (int i = start; i < aiMessages.length(); i++) apiMessages.put(aiMessages.getJSONObject(i));
+                  int start = Math.max(0, aiMessages.length() - pref.getInt(KEY_AI_CONTEXT_ROUNDS, 8));
+                  for (int i = start; i < aiMessages.length(); i++) {
+                      apiMessages.put(aiMessages.getJSONObject(i));
+                  }
                   body.put("messages", apiMessages);
                   body.put("temperature", 0.7);
                   body.put("stream", true);
@@ -2962,8 +3301,8 @@ jobs:
               }
           
               private String requestAiCompletionStream(String requestBody, AiStreamCallback callback) throws Exception {
-                  String apiUrl = pref.getString("aiApiUrl", "").trim();
-                  String apiKey = pref.getString("aiApiKey", "").trim();
+                  String apiUrl = pref.getString(KEY_AI_API_URL, "").trim();
+                  String apiKey = pref.getString(KEY_AI_API_KEY, "").trim();
                   HttpURLConnection conn = null;
                   try {
                       conn = (HttpURLConnection) new URL(apiUrl).openConnection();
@@ -3306,13 +3645,17 @@ jobs:
           
               private void saveAiSettings() {
                   int rounds = 8;
-                  try { rounds = Integer.parseInt(contextRoundInput.getText().toString().trim()); } catch (Exception ignored) {}
+                  try {
+                      rounds = Integer.parseInt(contextRoundInput.getText().toString().trim());
+                  } catch (Exception ignored) {}
                   rounds = Math.max(1, Math.min(32, rounds));
-                  pref.edit().putString("aiApiUrl", apiUrlInput.getText().toString().trim())
-                        .putString("aiApiKey", apiKeyInput.getText().toString().trim())
-                        .putString("aiModel", modelInput.getText().toString().trim())
-                        .putString("aiSystemPrompt", systemPromptInput.getText().toString().trim())
-                        .putInt("aiContextRounds", rounds).apply();
+                  pref.edit()
+                      .putString(KEY_AI_API_URL, apiUrlInput.getText().toString().trim())
+                      .putString(KEY_AI_API_KEY, apiKeyInput.getText().toString().trim())
+                      .putString(KEY_AI_MODEL, modelInput.getText().toString().trim())
+                      .putString(KEY_AI_SYSTEM_PROMPT, systemPromptInput.getText().toString().trim())
+                      .putInt(KEY_AI_CONTEXT_ROUNDS, rounds)
+                      .apply();
               }
           
               private void fillDefaultAiSettings() {
@@ -3325,8 +3668,17 @@ jobs:
                   showStatus("\u5df2\u586b\u5165 OpenRouter \u514d\u8d39\u6a21\u578b\u9ed8\u8ba4\u914d\u7f6e");
               }
           
-              private void loadAiMessages() { try { aiMessages = new JSONArray(pref.getString("aiMessages", "[]")); } catch (Exception e) { aiMessages = new JSONArray(); } }
-              private void saveAiMessages() { pref.edit().putString("aiMessages", aiMessages.toString()).apply(); }
+              private void loadAiMessages() {
+                  try {
+                      aiMessages = new JSONArray(pref.getString(KEY_AI_MESSAGES, "[]"));
+                  } catch (Exception e) {
+                      aiMessages = new JSONArray();
+                  }
+              }
+          
+              private void saveAiMessages() {
+                  pref.edit().putString(KEY_AI_MESSAGES, aiMessages.toString()).apply();
+              }
           
               private String shortError(String value) {
                   if (value == null) return "\u672a\u77e5\u9519\u8bef";
@@ -3344,7 +3696,7 @@ jobs:
               }
           
               private void ensureDefaults() {
-                  if (!pref.getBoolean("defaultsReady", false)) {
+                  if (!pref.getBoolean(KEY_DEFAULTS_READY, false)) {
                       JSONArray texts = new JSONArray();
                       addDefaultText(texts, "GitHub Actions \u6587\u4ef6\u540d", ".github/workflows/build-apk.yml");
                       addDefaultText(texts, "OpenRouter API \u5730\u5740", "https://openrouter.ai/api/v1/chat/completions");
@@ -3354,48 +3706,55 @@ jobs:
                           String num = String.valueOf(i);
                           addDefaultLink(links, num, num);
                       }
-                      pref.edit().putString("texts", texts.toString()).putString("links", links.toString())
-                            .putBoolean("defaultsReady", true).putInt("pomoFocusMin", 25).putInt("pomoRestMin", 5).apply();
+                      pref.edit()
+                          .putString(KEY_TEXTS, texts.toString())
+                          .putString(KEY_LINKS, links.toString())
+                          .putBoolean(KEY_DEFAULTS_READY, true)
+                          .putInt(KEY_POMO_FOCUS_MIN, 25)
+                          .putInt(KEY_POMO_REST_MIN, 5)
+                          .apply();
                   }
               }
           
               private void refreshDefaultContentFor17() {
-                  if (pref.getBoolean("defaultsV17Ready", false)) return;
-                  JSONArray oldTexts = loadArray("texts");
+                  if (pref.getBoolean(KEY_DEFAULTS_V17_READY, false)) return;
+                  JSONArray oldTexts = loadArray(KEY_TEXTS);
                   JSONArray newTexts = new JSONArray();
                   for (int i = 0; i < oldTexts.length(); i++) {
                       try {
                           JSONObject obj = oldTexts.getJSONObject(i);
-                          String title = obj.optString("title", ""); String content = obj.optString("content", "");
+                          String title = obj.optString("title", "");
+                          String content = obj.optString("content", "");
                           if (title.contains("\u6dfb\u52a0 APK \u6253\u5305\u6d41\u7a0b") || title.contains("\u5347\u7ea7\u7248\u672c")) continue;
                           if ("\u6dfb\u52a0\u5b89\u5353APK\u6253\u5305\u6d41\u7a0b".equals(content) || "\u5347\u7ea7\u7248\u672c".equals(content)) continue;
                           newTexts.put(obj);
                       } catch (Exception ignored) {}
                   }
-                  saveArray("texts", newTexts);
-                  JSONArray links = loadArray("links");
+                  saveArray(KEY_TEXTS, newTexts);
+                  JSONArray links = loadArray(KEY_LINKS);
                   addLinkIfMissing(links, "Netlify", "https://www.netlify.com");
                   addLinkIfMissing(links, "WebIntoApp \u7f51\u9875\u5c01\u88c5", "https://www.webintoapp.com");
-                  saveArray("links", links);
-                  pref.edit().putBoolean("defaultsV17Ready", true).apply();
+                  saveArray(KEY_LINKS, links);
+                  pref.edit().putBoolean(KEY_DEFAULTS_V17_READY, true).apply();
               }
           
               private void refreshDefaultContentFor171() {
-                  if (pref.getBoolean("defaultsV171Ready", false)) return;
-                  JSONArray oldLinks = loadArray("links");
+                  if (pref.getBoolean(KEY_DEFAULTS_V171_READY, false)) return;
+                  JSONArray oldLinks = loadArray(KEY_LINKS);
                   JSONArray newLinks = new JSONArray();
                   for (int i = 0; i < oldLinks.length(); i++) {
                       try {
                           JSONObject obj = oldLinks.getJSONObject(i);
-                          String title = obj.optString("title", ""); String url = obj.optString("url", "");
+                          String title = obj.optString("title", "");
+                          String url = obj.optString("url", "");
                           if ("Netlify".equals(title) || "https://www.netlify.com".equalsIgnoreCase(url)) continue;
                           if (title.contains("WebIntoApp") || "https://www.webintoapp.com".equalsIgnoreCase(url)) continue;
                           newLinks.put(obj);
                       } catch (Exception ignored) {}
                   }
                   addLinkIfMissing(newLinks, "Netlify Drop", "https://app.netlify.com/drop");
-                  saveArray("links", newLinks);
-                  pref.edit().putBoolean("defaultsV171Ready", true).apply();
+                  saveArray(KEY_LINKS, newLinks);
+                  pref.edit().putBoolean(KEY_DEFAULTS_V171_READY, true).apply();
               }
           
               private void addLinkIfMissing(JSONArray array, String title, String url) {
@@ -3733,7 +4092,7 @@ jobs:
                   sortDragLastRawY = rawY;
                   view.setTranslationY(desiredTranslation);
               }
-
+          
               // 跨页后重新对齐浮动视图到手指位置，保持相对偏移
               private void realignFloatingViewToFinger(View view, float rawY) {
                   if (view == null) return;
@@ -3841,14 +4200,14 @@ jobs:
                       if (sortCrossPagePending && isFloating) return pageStart;
                       return sortDragOriginalIndex;
                   }
-
+          
                   boolean isFloating = moving.getParent() != parent;
                   int[] movingLoc = new int[2];
                   moving.getLocationOnScreen(movingLoc);
                   float movingBaseTop = movingLoc[1] - moving.getTranslationY();
                   float movingCenterY = movingBaseTop + moving.getTranslationY() + moving.getHeight() / 2f;
                   float movingBottom = movingBaseTop + moving.getTranslationY() + moving.getHeight();
-
+          
                   // 跨页到新页：分阶段触发
                   // 阶段1：底部碰到目标页第一条目上边缘 -> 目标页所有条目+三按键+功能说明整体下移
                   // 阶段2：继续向下，底部碰到原第一条目的下边缘 -> 原第一条目上移一格，视觉上位置互换
@@ -3895,7 +4254,7 @@ jobs:
                       int maxTarget = pageStart + itemCount;
                       return Math.max(pageStart, Math.min(maxTarget, pageStart + result));
                   }
-
+          
                   // 非跨页模式：使用中心点判断
                   int result = 0;
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
@@ -3918,14 +4277,14 @@ jobs:
                   int pageStart = isSortMode(sortModeKey, sortModeType) && parent == sortList ? sortPageIndex * PAGE_SIZE : 0;
                   int pageEnd = pageStart + PAGE_SIZE - 1;
                   boolean isFloating = moving.getParent() != parent;
-
+          
                   // 跨页到新页：计算需要整体上移的条目数量
                   // 当 toIndex > pageStart 时，表示拖拽条目已经越过了 (toIndex - pageStart) 个条目
                   int crossPageShiftCount = 0;
                   if (sortCrossPagePending && isFloating && toIndex >= pageStart) {
                       crossPageShiftCount = toIndex - pageStart;
                   }
-
+          
                   for (int i = headerCount; i < parent.getChildCount(); i++) {
                       View child = parent.getChildAt(i);
                       if (child == moving) continue;
@@ -3933,7 +4292,7 @@ jobs:
                       if (!(childTag instanceof Integer)) continue;
                       int childIndex = ((Integer) childTag).intValue();
                       float shift = 0f;
-
+          
                       if (sortCrossPagePending && isFloating) {
                           // 跨页到新页：浮动条目是外来者
                           // toIndex < pageStart 时（未接触第一条上边缘），不触发躲闪
@@ -3963,7 +4322,7 @@ jobs:
                       child.animate().cancel();
                       child.animate().translationY(shift).setDuration(170).start();
                   }
-
+          
                   // 跨页到新页时，toIndex >= pageStart 整体下移，pagerView 和功能说明也跟着下移
                   // 当条目回缩时（toIndex 减小），三按键和功能说明也跟着回缩
                   if (sortCrossPagePending && isFloating) {
@@ -4391,8 +4750,8 @@ jobs:
               private void toast(String value) { Toast.makeText(this, value, Toast.LENGTH_SHORT).show(); }
           }
           
+          
           FILEEOF
-
           mkdir -p app/src/main/res/values
           cat << 'FILEEOF' > app/src/main/res/values/styles.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -4405,6 +4764,7 @@ jobs:
                   <item name="android:colorAccent">#38BDF8</item>
               </style>
           </resources>
+          
           
           FILEEOF
 
@@ -4435,7 +4795,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload build reports on failure
+      - name: Upload bfounduild reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -4443,5 +4803,5 @@ jobs:
           path: |
             app/build/reports/
             app/build/outputs/logs/
-          if-no-files-found: ignore
+          if-no-files-: ignore
           retention-days: 7
