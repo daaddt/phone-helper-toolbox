@@ -952,27 +952,26 @@ jobs:
                   boolean changed = false;
 
                   for (int i = 0; i < alarms.length(); i++) {
-                      JSONObject alarm = alarms.optJSONObject(i);
-                      if (alarm == null || !alarm.optBoolean("enabled", false)) continue;
+                      try {
+                          JSONObject alarm = alarms.optJSONObject(i);
+                          if (alarm == null || !alarm.optBoolean("enabled", false)) continue;
 
-                      long nextAt = alarm.optLong("nextAt", 0);
-                      if (nextAt <= System.currentTimeMillis()) {
-                          try {
+                          long nextAt = alarm.optLong("nextAt", 0);
+                          if (nextAt <= System.currentTimeMillis()) {
                               nextAt = AlarmUtils.nextAlarmTime(
                                   alarm.optInt("hour", 7),
                                   alarm.optInt("minute", 0),
                                   alarm.optString("repeatDays", "")
                               );
                               alarm.put("nextAt", nextAt);
+                              alarms.put(i, alarm);
                               changed = true;
-                          } catch (Exception e) {
-                              e.printStackTrace();
-                              continue;
                           }
-                      }
 
-                      AlarmReceiver.scheduleExactAlarm(context, alarm);
-                      alarms.put(i, alarm);
+                          AlarmReceiver.scheduleExactAlarm(context, alarm);
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
                   }
 
                   if (changed) {
@@ -993,8 +992,6 @@ jobs:
                   pref.edit().putString(KEY_SYSTEM_ALARMS, alarms.toString()).apply();
               }
           }
-
-
           FILEEOF
 
           mkdir -p app/src/main/java/com/trae/phonehelper
