@@ -106,15 +106,67 @@ jobs:
                   applicationId "com.trae.phonehelper"
                   minSdk 26
                   targetSdk 35
-                  versionCode 80
-                  versionName "1.16.1"
+                  versionCode 81
+                  versionName "1.17.0"
               }
           
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
               }
+          
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv("KEYSTORE_FILE"))
+                      storePassword System.getenv("KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("KEY_ALIAS")
+                      keyPassword System.getenv("KEY_PASSWORD")
+                  }
+              }
+          
+              buildTypes {
+                  release {
+                      minifyEnabled true
+                      shrinkResources true
+                      proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+                      signingConfig signingConfigs.release
+                  }
+              }
           }
+          
+          FILEEOF
+
+          cat << 'FILEEOF' > app/proguard-rules.pro
+          -keep public class * extends android.app.Activity
+          -keep public class * extends android.app.Application
+          -keep public class * extends android.app.Service
+          -keep public class * extends android.content.BroadcastReceiver
+          -keep public class * extends android.content.ContentProvider
+          -keep public class * extends android.support.v4.app.Fragment
+          -keep public class * extends android.app.Fragment
+
+          -keepattributes *Annotation*
+          -keepattributes Signature
+          -keepattributes SourceFile,LineNumberTable
+
+          -keepclassmembers class * extends android.app.Activity {
+              public void *(android.view.View);
+          }
+
+          -keepclassmembers enum * {
+              public static **[] values();
+              public static ** valueOf(java.lang.String);
+          }
+
+          -keep class * implements android.os.Parcelable {
+              public static final android.os.Parcelable$Creator *;
+          }
+
+          -keepclassmembers class **.R$* {
+              public static <fields>;
+          }
+
+          -keep public class com.trae.phonehelper.** { *; }
           
           FILEEOF
 
@@ -146,8 +198,20 @@ jobs:
                   android:theme="@style/AppTheme"
                   android:label="手机助手工具箱"
                   android:resizeableActivity="true"
-                  android:supportsRtl="true">
+                  android:supportsRtl="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round">
           
+                  <activity
+                      android:name=".SplashActivity"
+                      android:exported="true"
+                      android:theme="@style/SplashTheme">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
                   <activity
                       android:name=".AlarmRingActivity"
                       android:exported="false"
@@ -183,14 +247,13 @@ jobs:
                   </receiver>
           
                   <activity
+                      android:name=".SettingsActivity"
+                      android:exported="false" />
+
+                  <activity
                       android:name=".MainActivity"
                       android:exported="true"
-                      android:windowSoftInputMode="adjustResize">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
+                      android:windowSoftInputMode="adjustResize" />
               </application>
           </manifest>
           
@@ -994,6 +1057,453 @@ jobs:
           }
           FILEEOF
 
+          cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/SplashActivity.java
+          package com.trae.phonehelper;
+
+          import android.app.Activity;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+
+          public class SplashActivity extends Activity {
+              private static final String PREF = "phone_helper_pref";
+              private static final String KEY_THEME_MODE = "themeMode";
+              private static final long SPLASH_DELAY_MS = 1500;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  applyTheme();
+                  setContentView(R.layout.splash_screen);
+
+                  new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                      Intent intent = new Intent(SplashActivity.this, MainActivity.class);
+                      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                      startActivity(intent);
+                      finish();
+                  }, SPLASH_DELAY_MS);
+              }
+
+              private void applyTheme() {
+                  SharedPreferences pref = getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                  String themeMode = pref.getString(KEY_THEME_MODE, "dark");
+                  if ("light".equals(themeMode)) {
+                      setTheme(R.style.AppTheme_Light);
+                  } else {
+                      setTheme(R.style.SplashTheme);
+                  }
+              }
+          }
+          FILEEOF
+
+          cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/SettingsActivity.java
+          package com.trae.phonehelper;
+
+          import android.app.Activity;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.graphics.drawable.GradientDrawable;
+          import android.os.Bundle;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.widget.Button;
+          import android.widget.CheckBox;
+          import android.widget.LinearLayout;
+          import android.widget.RadioButton;
+          import android.widget.RadioGroup;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          public class SettingsActivity extends Activity {
+              private static final String PREF = "phone_helper_pref";
+              private static final String KEY_THEME_MODE = "themeMode";
+              private static final String KEY_FONT_SCALE = "fontScale";
+              private static final String KEY_SOUND_ENABLED = "soundEnabled";
+              private static final String KEY_VIBRATION_ENABLED = "vibrationEnabled";
+
+              private SharedPreferences pref;
+              private FeedbackHelper feedback;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  pref = getSharedPreferences(PREF, Context.MODE_PRIVATE);
+                  applyTheme();
+                  feedback = FeedbackHelper.getInstance(this);
+                  feedback.setSoundEnabled(pref.getBoolean(KEY_SOUND_ENABLED, true));
+                  feedback.setVibrationEnabled(pref.getBoolean(KEY_VIBRATION_ENABLED, true));
+                  setContentView(buildSettingsLayout());
+              }
+
+              private void applyTheme() {
+                  String themeMode = pref.getString(KEY_THEME_MODE, "dark");
+                  if ("light".equals(themeMode)) {
+                      setTheme(R.style.AppTheme_Light);
+                  } else {
+                      setTheme(R.style.AppTheme);
+                  }
+              }
+
+              private LinearLayout buildSettingsLayout() {
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setPadding(22, 60, 22, 28);
+                  root.setBackgroundColor(isDarkTheme() ? Color.rgb(10, 15, 25) : Color.WHITE);
+
+                  TextView title = new TextView(this);
+                  title.setText("设置");
+                  title.setTextSize(28);
+                  title.setTypeface(Typeface.DEFAULT_BOLD);
+                  title.setTextColor(isDarkTheme() ? Color.WHITE : Color.BLACK);
+                  title.setGravity(Gravity.CENTER_HORIZONTAL);
+                  title.setPadding(0, 10, 0, 20);
+                  root.addView(title);
+
+                  root.addView(sectionTitle("主题设置"));
+                  root.addView(buildThemeSection());
+
+                  root.addView(sectionTitle("字体大小"));
+                  root.addView(buildFontSizeSection());
+
+                  root.addView(sectionTitle("反馈设置"));
+                  root.addView(buildFeedbackSection());
+
+                  root.addView(sectionTitle("数据管理"));
+                  root.addView(buildDataManagementSection());
+
+                  Button backBtn = createButton("返回", isDarkTheme() ? Color.rgb(14, 165, 233) : Color.rgb(0, 122, 255));
+                  backBtn.setOnClickListener(v -> {
+                      feedback.click();
+                      finish();
+                  });
+                  root.addView(backBtn);
+
+                  return root;
+              }
+
+              private boolean isDarkTheme() {
+                  return !"light".equals(pref.getString(KEY_THEME_MODE, "dark"));
+              }
+
+              private TextView sectionTitle(String text) {
+                  TextView title = new TextView(this);
+                  title.setText(text);
+                  title.setTextSize(16);
+                  title.setTextColor(isDarkTheme() ? Color.rgb(125, 211, 252) : Color.rgb(14, 165, 233));
+                  title.setTypeface(Typeface.DEFAULT_BOLD);
+                  title.setPadding(0, 20, 0, 10);
+                  return title;
+              }
+
+              private LinearLayout buildThemeSection() {
+                  LinearLayout card = createCard();
+                  RadioGroup radioGroup = new RadioGroup(this);
+                  radioGroup.setOrientation(LinearLayout.HORIZONTAL);
+
+                  RadioButton darkBtn = new RadioButton(this);
+                  darkBtn.setText("深色模式");
+                  darkBtn.setTextColor(isDarkTheme() ? Color.WHITE : Color.BLACK);
+                  darkBtn.setTextSize(16);
+                  darkBtn.setChecked("dark".equals(pref.getString(KEY_THEME_MODE, "dark")));
+
+                  RadioButton lightBtn = new RadioButton(this);
+                  lightBtn.setText("浅色模式");
+                  lightBtn.setTextColor(isDarkTheme() ? Color.WHITE : Color.BLACK);
+                  lightBtn.setTextSize(16);
+                  lightBtn.setChecked("light".equals(pref.getString(KEY_THEME_MODE, "dark")));
+
+                  radioGroup.addView(darkBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                  radioGroup.addView(lightBtn, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+                  radioGroup.setOnCheckedChangeListener((group, checkedId) -> {
+                      feedback.click();
+                      RadioButton checked = group.findViewById(checkedId);
+                      String theme = "深色模式".equals(checked.getText()) ? "dark" : "light";
+                      pref.edit().putString(KEY_THEME_MODE, theme).apply();
+                      Toast.makeText(SettingsActivity.this, "主题已切换，重启应用生效", Toast.LENGTH_SHORT).show();
+                  });
+
+                  card.addView(radioGroup);
+                  return card;
+              }
+
+              private LinearLayout buildFontSizeSection() {
+                  LinearLayout card = createCard();
+                  RadioGroup radioGroup = new RadioGroup(this);
+                  radioGroup.setOrientation(LinearLayout.VERTICAL);
+
+                  String[] sizes = {"小号", "标准", "大号", "特大号"};
+                  float[] scales = {0.85f, 1.0f, 1.15f, 1.3f};
+                  float currentScale = pref.getFloat(KEY_FONT_SCALE, 1.0f);
+
+                  for (int i = 0; i < sizes.length; i++) {
+                      RadioButton btn = new RadioButton(this);
+                      btn.setText(sizes[i]);
+                      btn.setTextColor(isDarkTheme() ? Color.WHITE : Color.BLACK);
+                      btn.setTextSize(16 * currentScale);
+                      btn.setChecked(Math.abs(currentScale - scales[i]) < 0.05f);
+
+                      final float scale = scales[i];
+                      btn.setOnClickListener(v -> {
+                          feedback.click();
+                          pref.edit().putFloat(KEY_FONT_SCALE, scale).apply();
+                          Toast.makeText(SettingsActivity.this, "字体大小已更新", Toast.LENGTH_SHORT).show();
+                          recreate();
+                      });
+
+                      radioGroup.addView(btn);
+                  }
+
+                  card.addView(radioGroup);
+                  return card;
+              }
+
+              private LinearLayout buildFeedbackSection() {
+                  LinearLayout card = createCard();
+
+                  CheckBox soundCheck = new CheckBox(this);
+                  soundCheck.setText("启用音效");
+                  soundCheck.setTextColor(isDarkTheme() ? Color.WHITE : Color.BLACK);
+                  soundCheck.setTextSize(16);
+                  soundCheck.setChecked(pref.getBoolean(KEY_SOUND_ENABLED, true));
+                  soundCheck.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                      feedback.click();
+                      pref.edit().putBoolean(KEY_SOUND_ENABLED, isChecked).apply();
+                      feedback.setSoundEnabled(isChecked);
+                  });
+                  card.addView(soundCheck);
+
+                  CheckBox vibrationCheck = new CheckBox(this);
+                  vibrationCheck.setText("启用震动反馈");
+                  vibrationCheck.setTextColor(isDarkTheme() ? Color.WHITE : Color.BLACK);
+                  vibrationCheck.setTextSize(16);
+                  vibrationCheck.setChecked(pref.getBoolean(KEY_VIBRATION_ENABLED, true));
+                  vibrationCheck.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                      feedback.click();
+                      pref.edit().putBoolean(KEY_VIBRATION_ENABLED, isChecked).apply();
+                      feedback.setVibrationEnabled(isChecked);
+                  });
+                  card.addView(vibrationCheck);
+
+                  return card;
+              }
+
+              private LinearLayout buildDataManagementSection() {
+                  LinearLayout card = createCard();
+
+                  Button clearBtn = createButton("清理所有数据", Color.rgb(244, 63, 94));
+                  clearBtn.setText("清理所有数据（常用文本、快捷链接、AI对话）");
+                  clearBtn.setOnClickListener(v -> {
+                      feedback.click();
+                      new android.app.AlertDialog.Builder(SettingsActivity.this)
+                          .setTitle("确认清理")
+                          .setMessage("确定要删除所有保存的数据吗？此操作不可恢复。")
+                          .setPositiveButton("确定", (dialog, which) -> {
+                              clearAllData();
+                              feedback.success();
+                              Toast.makeText(SettingsActivity.this, "数据已清理", Toast.LENGTH_SHORT).show();
+                          })
+                          .setNegativeButton("取消", null)
+                          .show();
+                  });
+                  card.addView(clearBtn);
+
+                  return card;
+              }
+
+              private void clearAllData() {
+                  SharedPreferences.Editor editor = pref.edit();
+                  editor.remove("texts");
+                  editor.remove("links");
+                  editor.remove("aiMessages");
+                  editor.remove("aiApiUrl");
+                  editor.remove("aiApiKey");
+                  editor.remove("aiModel");
+                  editor.remove("aiSystemPrompt");
+                  editor.remove("aiContextRounds");
+                  editor.remove("splitInputText");
+                  editor.remove("splitInputSize");
+                  editor.apply();
+              }
+
+              private LinearLayout createCard() {
+                  LinearLayout card = new LinearLayout(this);
+                  card.setOrientation(LinearLayout.VERTICAL);
+                  card.setPadding(20, 18, 20, 18);
+
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(isDarkTheme() ? Color.rgb(17, 24, 39) : Color.rgb(248, 250, 252));
+                  bg.setStroke(1, isDarkTheme() ? Color.rgb(39, 52, 73) : Color.rgb(226, 232, 240));
+                  bg.setCornerRadius(24);
+                  card.setBackground(bg);
+
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  lp.setMargins(0, 8, 0, 12);
+                  card.setLayoutParams(lp);
+
+                  return card;
+              }
+
+              private Button createButton(String text, int color) {
+                  Button btn = new Button(this);
+                  btn.setText(text);
+                  btn.setTextSize(16);
+                  btn.setAllCaps(false);
+                  btn.setTextColor(Color.WHITE);
+
+                  GradientDrawable bg = new GradientDrawable(
+                      GradientDrawable.Orientation.LEFT_RIGHT,
+                      new int[]{color, adjustColorBrightness(color, -20)});
+                  bg.setCornerRadius(22);
+                  btn.setBackground(bg);
+                  btn.setPadding(24, 16, 24, 16);
+
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  lp.setMargins(0, 8, 0, 8);
+                  btn.setLayoutParams(lp);
+
+                  return btn;
+              }
+
+              private int adjustColorBrightness(int color, int amount) {
+                  int r = Math.max(0, Math.min(255, Color.red(color) + amount));
+                  int g = Math.max(0, Math.min(255, Color.green(color) + amount));
+                  int b = Math.max(0, Math.min(255, Color.blue(color) + amount));
+                  return Color.rgb(r, g, b);
+              }
+          }
+          FILEEOF
+
+          cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/FeedbackHelper.java
+          package com.trae.phonehelper;
+
+          import android.content.Context;
+          import android.media.AudioManager;
+          import android.media.ToneGenerator;
+          import android.os.Vibrator;
+
+          public class FeedbackHelper {
+              private static FeedbackHelper instance;
+              private final Context context;
+              private final Vibrator vibrator;
+              private final ToneGenerator toneGenerator;
+              private boolean soundEnabled = true;
+              private boolean vibrationEnabled = true;
+
+              private FeedbackHelper(Context context) {
+                  this.context = context.getApplicationContext();
+                  this.vibrator = (Vibrator) this.context.getSystemService(Context.VIBRATOR_SERVICE);
+                  this.toneGenerator = new ToneGenerator(AudioManager.STREAM_MUSIC, 80);
+              }
+
+              public static synchronized FeedbackHelper getInstance(Context context) {
+                  if (instance == null) {
+                      instance = new FeedbackHelper(context);
+                  }
+                  return instance;
+              }
+
+              public void playSuccess() {
+                  if (!soundEnabled || toneGenerator == null) return;
+                  try {
+                      toneGenerator.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 200);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              public void playFailure() {
+                  if (!soundEnabled || toneGenerator == null) return;
+                  try {
+                      toneGenerator.startTone(ToneGenerator.TONE_CDMA_NO_CALL_WAITING, 300);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              public void playClick() {
+                  if (!soundEnabled || toneGenerator == null) return;
+                  try {
+                      toneGenerator.startTone(ToneGenerator.TONE_CDMA_KEYPAD_VOLUME_KEY_LITE, 50);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              public void vibrateShort() {
+                  if (!vibrationEnabled || vibrator == null || !vibrator.hasVibrator()) return;
+                  try {
+                      vibrator.vibrate(50);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              public void vibrateMedium() {
+                  if (!vibrationEnabled || vibrator == null || !vibrator.hasVibrator()) return;
+                  try {
+                      vibrator.vibrate(100);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              public void vibrateLong() {
+                  if (!vibrationEnabled || vibrator == null || !vibrator.hasVibrator()) return;
+                  try {
+                      vibrator.vibrate(200);
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              public void success() {
+                  playSuccess();
+                  vibrateShort();
+              }
+
+              public void failure() {
+                  playFailure();
+                  vibrateMedium();
+              }
+
+              public void click() {
+                  playClick();
+                  vibrateShort();
+              }
+
+              public void setSoundEnabled(boolean enabled) {
+                  this.soundEnabled = enabled;
+              }
+
+              public void setVibrationEnabled(boolean enabled) {
+                  this.vibrationEnabled = enabled;
+              }
+
+              public boolean isSoundEnabled() {
+                  return soundEnabled;
+              }
+
+              public boolean isVibrationEnabled() {
+                  return vibrationEnabled;
+              }
+
+              public void release() {
+                  if (toneGenerator != null) {
+                      toneGenerator.release();
+                  }
+              }
+          }
+          FILEEOF
+
           mkdir -p app/src/main/java/com/trae/phonehelper
           cat << 'FILEEOF' > app/src/main/java/com/trae/phonehelper/MainActivity.java
           package com.trae.phonehelper;
@@ -1106,6 +1616,9 @@ jobs:
               private static final int COLOR_TEXT_TERTIARY = Color.rgb(156, 163, 175);
               private SharedPreferences pref;
               private final Handler handler = new Handler(Looper.getMainLooper());
+              private FeedbackHelper feedback;
+              private boolean isLightTheme = false;
+              private float fontScale = 1.0f;
 
               private LinearLayout homePage, splitPage, textPage, linkPage, sortPage, timerPage, pomoPage, alarmPage, aiPage, aiSettingsPage, backupPage;
               private LinearLayout splitResultList, savedTextList, linkList, sortList, alarmList, aiMessageList, aiInputArea;
@@ -1215,8 +1728,11 @@ jobs:
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+                  applyTheme();
                   getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
                   pref = getSharedPreferences(PREF, MODE_PRIVATE);
+                  initFeedback();
+                  fontScale = pref.getFloat(KEY_FONT_SCALE, 1.0f);
                   ensureDefaults();
                   refreshDefaultContentFor17();
                   refreshDefaultContentFor171();
@@ -1230,6 +1746,22 @@ jobs:
                   reconcileAlarmSchedules();
                   updateAlarmDisplay();
                   handler.post(tick);
+              }
+
+              private void applyTheme() {
+                  String themeMode = pref.getString(KEY_THEME_MODE, "dark");
+                  isLightTheme = "light".equals(themeMode);
+                  if (isLightTheme) {
+                      setTheme(R.style.AppTheme_Light);
+                  } else {
+                      setTheme(R.style.AppTheme);
+                  }
+              }
+
+              private void initFeedback() {
+                  feedback = FeedbackHelper.getInstance(this);
+                  feedback.setSoundEnabled(pref.getBoolean(KEY_SOUND_ENABLED, true));
+                  feedback.setVibrationEnabled(pref.getBoolean(KEY_VIBRATION_ENABLED, true));
               }
 
               private void requestAlarmPermissions() {
@@ -1407,6 +1939,8 @@ jobs:
                   homePage.addView(sectionTitle("AI\u5de5\u5177"));
                   homePage.addView(homeButton("AI\u804a\u5929", "\u63a5\u5165 OpenAI \u5171\u5bb9\u63a5\u53e3\uff0c\u652f\u6301 openrouter/free", "ai"));
                   homePage.addView(homeButton("AI\u8bbe\u7f6e", "\u586b\u5199 API \u5730\u5740\u3001API Key\u3001\u6a21\u578b\u540d\u548c\u667a\u80fd\u4f53\u8bbe\u5b9a", "aiSettings"));
+                  homePage.addView(sectionTitle("\u8bbe\u7f6e"));
+                  homePage.addView(homeButton("\u8bbe\u7f6e", "\u4e3b\u9898\u5207\u6362\u3001\u5b57\u4f53\u5927\u5c0f\u3001\u6570\u636e\u6e05\u7406", "settings"));
               }
 
               private View homeButton(String title, String desc, String pageName) {
@@ -4587,6 +5121,12 @@ jobs:
               private String preview(String value) { String cleaned = value.trim(); return cleaned.length() <= 120 ? cleaned : cleaned.substring(0, 120) + "..."; }
 
               private void showPage(String pageName) {
+                  if ("settings".equals(pageName)) {
+                      if (feedback != null) feedback.click();
+                      Intent intent = new Intent(this, SettingsActivity.class);
+                      startActivity(intent);
+                      return;
+                  }
                   if (!sortModeKey.isEmpty() && !"sort".equals(pageName) && !("text".equals(pageName) && "text".equals(sortModeType)) && !("link".equals(pageName) && "link".equals(sortModeType))) {
                       sortModeKey = "";
                       sortModeType = "";
@@ -4754,12 +5294,101 @@ jobs:
 
               private void hideKeyboard() { try { InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE); View view = getCurrentFocus(); if (imm != null && view != null) imm.hideSoftInputFromWindow(view.getWindowToken(), 0); } catch (Exception ignored) {} }
 
-              private void buzz() { try { Vibrator vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE); if (vibrator != null) vibrator.vibrate(600); } catch (Exception ignored) {} }
+              private void buzz() { if (feedback != null) feedback.vibrateMedium(); }
 
               private void toast(String value) { Toast.makeText(this, value, Toast.LENGTH_SHORT).show(); }
           }
 
 
+          FILEEOF
+
+          mkdir -p app/src/main/res/drawable
+          cat << 'FILEEOF' > app/src/main/res/drawable/ic_launcher_foreground.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#0EA5E9"
+                  android:pathData="M54 14C33.1 14 17 29.1 17 50C17 73.9 37.1 94 60.5 94C63.8 94 67 93.4 70 92.3L70 78.5C68.9 78.9 67.7 79.2 66.5 79.2C60.1 79.2 54.7 73.8 54.7 67.4V61H42V49H54.7V35.5C54.7 28.9 60.9 22.7 67.5 22.7C68.8 22.7 70.1 22.9 71.3 23.3V10C66.8 8.5 60.6 7.5 54 7.5C30.2 7.5 10 26.7 10 49.5C10 72.3 30.2 91.5 54 91.5C74.8 91.5 91.5 75.8 91.5 55C91.5 34.2 75.8 18.5 54 18.5V14Z"/>
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M66.5 49H54V61H66.5C68.9 61 70.9 59 70.9 56.6V51.4C70.9 49 68.9 47 66.5 47V49Z"/>
+          </vector>
+          FILEEOF
+
+          cat << 'FILEEOF' > app/src/main/res/drawable/ic_launcher_background.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"
+              android:shape="rectangle">
+              <solid android:color="#0EA5E9"/>
+          </shape>
+          FILEEOF
+
+          cat << 'FILEEOF' > app/src/main/res/drawable/splash_screen.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:drawable="#0A0F19"/>
+              <item>
+                  <bitmap
+                      android:gravity="center"
+                      android:src="@mipmap/ic_launcher"/>
+              </item>
+          </layer-list>
+          FILEEOF
+
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat << 'FILEEOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background"/>
+              <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+          </adaptive-icon>
+          FILEEOF
+
+          cat << 'FILEEOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background"/>
+              <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+          </adaptive-icon>
+          FILEEOF
+
+          mkdir -p app/src/main/res/layout
+          cat << 'FILEEOF' > app/src/main/res/layout/splash_screen.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#0A0F19"
+              android:orientation="vertical"
+              android:gravity="center">
+
+              <ImageView
+                  android:layout_width="120dp"
+                  android:layout_height="120dp"
+                  android:src="@mipmap/ic_launcher"
+                  android:layout_marginBottom="30dp"/>
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="手机助手工具箱"
+                  android:textColor="#FFFFFF"
+                  android:textSize="28sp"
+                  android:textStyle="bold"/>
+
+              <TextView
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:text="Phone Helper Toolbox"
+                  android:textColor="#0EA5E9"
+                  android:textSize="14sp"
+                  android:layout_marginTop="8dp"/>
+
+          </LinearLayout>
           FILEEOF
 
           mkdir -p app/src/main/res/values
@@ -4772,6 +5401,18 @@ jobs:
                   <item name="android:statusBarColor">#0A0F19</item>
                   <item name="android:navigationBarColor">#0A0F19</item>
                   <item name="android:colorAccent">#38BDF8</item>
+              </style>
+              <style name="AppTheme.Light" parent="@android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">true</item>
+                  <item name="android:statusBarColor">#FFFFFF</item>
+                  <item name="android:navigationBarColor">#FFFFFF</item>
+                  <item name="android:colorAccent">#0EA5E9</item>
+              </style>
+              <style name="SplashTheme" parent="@android:style/Theme.Material.NoActionBar">
+                  <item name="android:windowBackground">@drawable/splash_screen</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">#0A0F19</item>
               </style>
           </resources>
           
@@ -4803,6 +5444,35 @@ jobs:
           path: ${{ steps.rename.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Build release APK
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+        env:
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Rename release APK with version info
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        id: rename-release
+        run: |
+          mkdir -p dist
+          SHORT_SHA="${GITHUB_SHA::7}"
+          APK_NAME="PhoneHelperToolbox-release-${SHORT_SHA}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/${APK_NAME}"
+          echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
+          echo "apk_path=dist/${APK_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release APK artifact
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.rename-release.outputs.apk_name }}
+          path: ${{ steps.rename-release.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload build reports on failure
         if: failure()
